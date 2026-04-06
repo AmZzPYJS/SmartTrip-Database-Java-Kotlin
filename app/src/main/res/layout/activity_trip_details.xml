@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:padding="24dp"
+    android:background="#F8FAFC">
+
+    <TextView
+        android:id="@+id/tvDetailTitle"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Détail du voyage"
+        android:textSize="28sp"
+        android:textStyle="bold"
+        android:textColor="#111827"
+        android:layout_marginBottom="24dp" />
+
+    <TextView
+        android:id="@+id/tvTripName"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Nom du voyage"
+        android:textSize="20sp"
+        android:textColor="#374151"
+        android:layout_marginBottom="20dp" />
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Les données GPS et les photos du cloud s'afficheront ici plus tard."
+        android:textSize="16sp"
+        android:textColor="#6B7280" />
+
+</LinearLayout>
