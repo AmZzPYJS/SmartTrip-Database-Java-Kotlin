@@ -1,8 +1,8 @@
-# :mobile_phone: SmartTrip
+# 📱 SmartTrip
 
 SmartTrip est une application Android permettant d’enregistrer et consulter des voyages, incluant des données GPS et des photos.
 
-## :rocket: Fonctionnalités actuelles
+## 🚀​ Fonctionnalités actuelles
 
 - :pushpin: Écran d’accueil avec navigation
 - :compass: Liste des voyages (historique)
@@ -11,7 +11,7 @@ SmartTrip est une application Android permettant d’enregistrer et consulter de
 - :frame_photo: Logo personnalisé intégré à l’application
 - :zap: Navigation fluide entre les écrans
 
-## :bricks: Structure du projet
+## ​🧱​ Structure du projet
 
 - `MainActivity` : écran principal
 - `TripsActivity` : liste des voyages
@@ -20,7 +20,7 @@ SmartTrip est une application Android permettant d’enregistrer et consulter de
 - `res/layout` : interfaces XML
 - `AndroidManifest.xml` : configuration de l’application
 
-## :tools: Technologies utilisées
+## ​🛠️​ Technologies utilisées
 
 - Java
 - Android Studio
@@ -28,13 +28,13 @@ SmartTrip est une application Android permettant d’enregistrer et consulter de
 - ListView + Adapter
 - Intents (navigation)
 
-## :camera_with_flash: Aperçu
+## ​📸​ Aperçu
 
 - Écran d’accueil
 - Liste des voyages
 - Détail d’un voyage
 
-## :soon: Améliorations prévues
+## 🔜 Améliorations prévues
 
 - :link: Connexion à un backend (API REST)
 - :cloud: Récupération des données en JSON
@@ -43,7 +43,7 @@ SmartTrip est une application Android permettant d’enregistrer et consulter de
 - :camera: Ajout de photos dans les voyages
 - :gear: Paramètres personnalisables
 
-## :package: Installation
+## ​📦​ Installation
 
 1. Cloner le projet :
 ```bash
