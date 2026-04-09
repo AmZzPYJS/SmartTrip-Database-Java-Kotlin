@@ -1,59 +1,50 @@
-# 📱 SmartTrip
+# ✈️ SmartTrip — Travel Planning Application
 
-SmartTrip est une application Android permettant d’enregistrer et consulter des voyages, incluant des données GPS et des photos.
+A travel planning application with a **Java/Kotlin** backend and database integration. Users can search, plan, and organize trips with destination management and itinerary building.
 
-## 🚀​ Fonctionnalités actuelles
+> Academic project — Database Project module, L3 Computer Science @ UVSQ
 
-- :pushpin: Écran d’accueil avec navigation
-- :compass: Liste des voyages (historique)
-- :page_facing_up: Détail d’un voyage
-- :art: Interface moderne et épurée
-- 🤳 Logo personnalisé intégré à l’application
-- :zap: Navigation fluide entre les écrans
+![Java](https://img.shields.io/badge/Java-ED8B00?style=flat&logo=openjdk&logoColor=white)
+![Kotlin](https://img.shields.io/badge/Kotlin-7F52FF?style=flat&logo=kotlin&logoColor=white)
+![SQL](https://img.shields.io/badge/SQL-4479A1?style=flat&logo=mysql&logoColor=white)
+![License](https://img.shields.io/badge/License-MIT-green)
 
-## ​🧱​ Structure du projet
+---
 
-- `MainActivity` : écran principal
-- `TripsActivity` : liste des voyages
-- `TripDetailsActivity` : détail d’un voyage
-- `TripAdapter` : gestion de l’affichage des voyages
-- `res/layout` : interfaces XML
-- `AndroidManifest.xml` : configuration de l’application
+## Features
 
-## ​🛠️​ Technologies utilisées
+- Trip search and planning interface
+- Destination management with metadata (location, activities, pricing)
+- Itinerary builder with day-by-day organization
+- Database backend for persistent storage
+- CRUD operations on trips, destinations, and user preferences
 
-- Java
-- Android Studio
-- XML (UI)
-- ListView + Adapter
-- Intents (navigation)
+## Tech stack
 
-## ​📸​ Aperçu
+| Component | Technology |
+|-----------|-----------|
+| Backend | Java, Kotlin |
+| Database | SQL (relational) |
+| Build | Gradle / Maven |
+| Architecture | MVC |
 
-- Écran d’accueil
-- Liste des voyages
-- Détail d’un voyage
+## Getting started
 
-## 🔜 Améliorations prévues
-
-- :link: Connexion à un backend (API REST)
-- :cloud: Récupération des données en JSON
-- :round_pushpin: Intégration GPS réel
-- 🗺️​ Affichage sur carte (OpenStreetMap / Google Maps)
-- :camera: Ajout de photos dans les voyages
-- :gear: Paramètres personnalisables
-
-## ​📦​ Installation
-
-1. Cloner le projet :
 ```bash
 git clone https://github.com/AmZzPYJS/SmartTrip-Database-Java-Kotlin.git
+cd SmartTrip-Database-Java-Kotlin
 ```
 
-2. Ouvrir avec Android Studio :
+Follow the setup instructions for database configuration and project build in the project documentation.
 
-3. Lancer sur un émulateur ou un téléphone
+## What I learned
 
+- Building a backend application with Java and Kotlin interoperability
+- Designing a relational database schema for a real-world use case
+- Implementing CRUD operations with proper SQL queries
+- Project management: task distribution, tools selection, and deadline management in a team setting
+- Writing a technical specification document (cahier des charges)
 
-Projet réalisé dans le cadre d’un projet universitaire (L3 Informatique – UVSQ / Paris-Saclay).
-Par Amîn Mezouer, Moussa Nguette, Abdallah Benzoubir, Papa Amath Bodian
+## License
+
+MIT
