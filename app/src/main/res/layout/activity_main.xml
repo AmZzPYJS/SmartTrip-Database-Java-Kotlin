@@ -1,12 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    android:layout_width="match_parent"
-    android:layout_height="match_parent"
-    android:orientation="vertical"
-    android:gravity="center"
-    android:padding="24dp"
-    android:background="#F8FAFC">
-
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android" android:layout_width="match_parent" android:layout_height="match_parent" android:orientation="vertical" android:gravity="center" android:padding="24dp" android:background="#F8FAFC">
     <TextView
         android:id="@+id/tvTitle"
         android:layout_width="wrap_content"
@@ -15,29 +7,48 @@
         android:textSize="34sp"
         android:textStyle="bold"
         android:textColor="#111827"
-        android:layout_marginBottom="40dp" />
-
+        android:layout_marginBottom="8dp"/>
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Enregistrez et revivez vos voyages"
+        android:textSize="14sp"
+        android:textColor="#6B7280"
+        android:layout_marginBottom="40dp"/>
     <Button
         android:id="@+id/btnStartTrip"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="Démarrer un voyage"
+        android:text="▶ Démarrer un voyage"
         android:layout_marginBottom="16dp"
-        android:minHeight="48dp" />
-
+        android:minHeight="48dp"/>
     <Button
         android:id="@+id/btnViewTrips"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="Voir les voyages"
+        android:text="📋 Voir les voyages"
         android:layout_marginBottom="16dp"
-        android:minHeight="48dp" />
-
+        android:minHeight="48dp"/>
     <Button
         android:id="@+id/btnSettings"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="Paramètres"
-        android:minHeight="48dp" />
-
+        android:text="⚙ Paramètres"
+        android:minHeight="48dp"/>
+    <!--  Spacer  -->
+    <View
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        android:layout_weight="1"/>
+    <!--  Statut batterie en bas de l'écran  -->
+    <TextView
+        android:id="@+id/tvBatteryStatus"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Batterie : chargement..."
+        android:textSize="12sp"
+        android:textColor="#9CA3AF"
+        android:gravity="center"
+        android:padding="8dp"
+        android:background="#F1F5F9"/>
 </LinearLayout>

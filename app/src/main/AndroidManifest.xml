@@ -1,18 +1,43 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<!--
+    AndroidManifest.xml — SmartTrip
+
+    MODIFICATIONS par rapport à l'original :
+    - Ajout de ActiveTripActivity (voyage en cours)
+    - Ajout de SettingsActivity (paramètres)
+    - Ajout de la permission BATTERY_STATS (lecture niveau batterie)
+
+    NOTE : Les permissions GPS (ACCESS_FINE_LOCATION, ACCESS_COARSE_LOCATION)
+    seront nécessaires quand tu intègreras le vrai GPS.
+    Pour l'instant la collecte est simulée, donc pas besoin.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.example.smarttrip">
+
+    <!-- Permission batterie (nécessaire pour BatteryHelper) -->
+    <!-- Note : BATTERY_STATS est une permission normale, pas besoin de demande runtime -->
+
+    <!-- Permissions GPS — à décommenter quand tu intègres le vrai GPS -->
+    <!--
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    -->
+
+    <!-- Permission Internet — nécessaire pour l'API FastAPI et OSMDroid -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
     <application
-        android:icon="@mipmap/ic_launcher"
-        android:roundIcon="@mipmap/ic_launcher_round"
         android:allowBackup="true"
+        android:icon="@mipmap/ic_launcher"
+        android:label="SmartTrip"
+        android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/Theme.SmartTrip">
 
-        <activity android:name=".TripDetailsActivity" />
-        <activity android:name=".TripsActivity" />
-
+        <!-- Splash Screen (launcher) -->
         <activity
-            android:name=".MainActivity"
+            android:name=".SplashActivity"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -20,6 +45,20 @@
             </intent-filter>
         </activity>
 
-    </application>
+        <!-- Écran principal -->
+        <activity android:name=".MainActivity" />
 
+        <!-- Historique des voyages -->
+        <activity android:name=".TripsActivity" />
+
+        <!-- Détail d'un voyage -->
+        <activity android:name=".TripDetailsActivity" />
+
+        <!-- Voyage en cours (NOUVEAU) -->
+        <activity android:name=".ActiveTripActivity" />
+
+        <!-- Paramètres (NOUVEAU) -->
+        <activity android:name=".SettingsActivity" />
+
+    </application>
 </manifest>

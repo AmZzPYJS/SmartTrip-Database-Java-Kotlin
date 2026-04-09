@@ -1,35 +1,23 @@
-<?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    android:layout_width="match_parent"
-    android:layout_height="match_parent"
-    android:orientation="vertical"
-    android:padding="24dp"
-    android:background="#F8FAFC">
-
-    <TextView
-        android:id="@+id/tvDetailTitle"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="Détail du voyage"
-        android:textSize="28sp"
-        android:textStyle="bold"
-        android:textColor="#111827"
-        android:layout_marginBottom="24dp" />
-
-    <TextView
-        android:id="@+id/tvTripName"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="Nom du voyage"
-        android:textSize="20sp"
-        android:textColor="#374151"
-        android:layout_marginBottom="20dp" />
-
-    <TextView
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="Les données GPS et les photos du cloud s'afficheront ici plus tard."
-        android:textSize="16sp"
-        android:textColor="#6B7280" />
-
-</LinearLayout>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android" android:layout_width="match_parent" android:layout_height="match_parent" android:background="#F8FAFC">
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:padding="24dp">
+        <!--  En-tête  -->
+        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Détail du voyage" android:textSize="28sp" android:textStyle="bold" android:textColor="#111827" android:layout_marginBottom="16dp"/>
+        <TextView android:id="@+id/tvTripName" android:layout_width="wrap_content" android:layout_height="wrap_content" android:textSize="22sp" android:textStyle="bold" android:textColor="#374151" android:layout_marginBottom="4dp"/>
+        <TextView android:id="@+id/tvTripDate" android:layout_width="wrap_content" android:layout_height="wrap_content" android:textSize="14sp" android:textColor="#6B7280" android:layout_marginBottom="8dp"/>
+        <TextView android:id="@+id/tvTripDescription" android:layout_width="wrap_content" android:layout_height="wrap_content" android:textSize="15sp" android:textColor="#374151" android:layout_marginBottom="20dp"/>
+        <!--  Statistiques  -->
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:background="#EEF2FF" android:padding="16dp" android:layout_marginBottom="20dp">
+            <TextView android:id="@+id/tvStats" android:layout_width="wrap_content" android:layout_height="wrap_content" android:textSize="14sp" android:textColor="#4338CA" android:textStyle="bold"/>
+        </LinearLayout>
+        <!--  Titre section POI  -->
+        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Points d'intérêt" android:textSize="20sp" android:textStyle="bold" android:textColor="#111827" android:layout_marginBottom="12dp"/>
+        <!--  Conteneur dynamique pour les POI  -->
+        <LinearLayout android:id="@+id/layoutPois" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical"/>
+        <!--  Zone carte (placeholder pour OSMDroid)  -->
+        <LinearLayout android:layout_width="match_parent" android:layout_height="200dp" android:background="#E5E7EB" android:gravity="center" android:layout_marginTop="20dp" android:layout_marginBottom="16dp">
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="🗺️ Carte OpenStreetMap\n(intégration en cours)" android:textColor="#6B7280" android:textSize="14sp" android:gravity="center"/>
+        </LinearLayout>
+        <!--  Statut batterie  -->
+        <TextView android:id="@+id/tvBatteryDetail" android:layout_width="match_parent" android:layout_height="wrap_content" android:textSize="12sp" android:textColor="#9CA3AF" android:gravity="center" android:padding="8dp" android:background="#F1F5F9" android:layout_marginTop="8dp"/>
+    </LinearLayout>
+</ScrollView>
