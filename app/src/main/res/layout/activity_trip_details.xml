@@ -13,10 +13,15 @@
         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Points d'intérêt" android:textSize="20sp" android:textStyle="bold" android:textColor="#111827" android:layout_marginBottom="12dp"/>
         <!--  Conteneur dynamique pour les POI  -->
         <LinearLayout android:id="@+id/layoutPois" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical"/>
-        <!--  Zone carte (placeholder pour OSMDroid)  -->
-        <LinearLayout android:layout_width="match_parent" android:layout_height="200dp" android:background="#E5E7EB" android:gravity="center" android:layout_marginTop="20dp" android:layout_marginBottom="16dp">
-            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="🗺️ Carte OpenStreetMap\n(intégration en cours)" android:textColor="#6B7280" android:textSize="14sp" android:gravity="center"/>
-        </LinearLayout>
+        <!--  Carte du parcours OSMDroid  -->
+        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Carte du parcours" android:textSize="20sp" android:textStyle="bold" android:textColor="#111827" android:layout_marginTop="20dp" android:layout_marginBottom="8dp"/>
+        <org.osmdroid.views.MapView
+            android:id="@+id/mapView"
+            android:layout_width="match_parent"
+            android:layout_height="280dp"
+            android:layout_marginBottom="16dp"
+            android:clickable="true"
+            android:focusable="true"/>
         <!--  Statut batterie  -->
         <TextView android:id="@+id/tvBatteryDetail" android:layout_width="match_parent" android:layout_height="wrap_content" android:textSize="12sp" android:textColor="#9CA3AF" android:gravity="center" android:padding="8dp" android:background="#F1F5F9" android:layout_marginTop="8dp"/>
     </LinearLayout>

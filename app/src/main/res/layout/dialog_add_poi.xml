@@ -1,0 +1,13 @@
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android" android:layout_width="match_parent" android:layout_height="wrap_content">
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:padding="24dp">
+        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Nom" android:textSize="14sp" android:textColor="#374151" android:layout_marginBottom="4dp"/>
+        <EditText android:id="@+id/editPoiName" android:layout_width="match_parent" android:layout_height="wrap_content" android:hint="Ex: Tour Eiffel, Chez Mario..." android:inputType="text" android:maxLines="1" android:layout_marginBottom="16dp"/>
+        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Type" android:textSize="14sp" android:textColor="#374151" android:layout_marginBottom="4dp"/>
+        <Spinner android:id="@+id/spinnerPoiType" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginBottom="16dp"/>
+        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Note" android:textSize="14sp" android:textColor="#374151" android:layout_marginBottom="4dp"/>
+        <RatingBar android:id="@+id/ratingBarPoi" android:layout_width="wrap_content" android:layout_height="wrap_content" android:numStars="5" android:rating="3" android:stepSize="1" android:layout_marginBottom="16dp"/>
+        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Commentaire" android:textSize="14sp" android:textColor="#374151" android:layout_marginBottom="4dp"/>
+        <EditText android:id="@+id/editPoiComment" android:layout_width="match_parent" android:layout_height="wrap_content" android:hint="Ton avis, astuces, remarques..." android:inputType="textMultiLine" android:minLines="3" android:maxLines="5" android:gravity="top" android:layout_marginBottom="16dp"/>
+        <TextView android:id="@+id/tvPoiCoords" android:layout_width="wrap_content" android:layout_height="wrap_content" android:textSize="12sp" android:textColor="#9CA3AF" android:textStyle="italic"/>
+    </LinearLayout>
+</ScrollView>
