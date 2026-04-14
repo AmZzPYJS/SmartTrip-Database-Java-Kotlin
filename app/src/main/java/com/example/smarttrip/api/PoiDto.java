@@ -44,8 +44,11 @@ public class PoiDto {
     @SerializedName("recorded_at")
     private String recordedAt;
 
+    @SerializedName("photo_base64")
+    private String photoBase64;  // null si pas de photo
+
     public PoiDto(String userId, String tripId, String name, String type,
-                  LocationDto location, int rating, String comment, String recordedAt) {
+                  LocationDto location, int rating, String comment, String recordedAt, String photoBase64) {
         this.userId = userId;
         this.tripId = tripId;
         this.name = name;
@@ -54,5 +57,6 @@ public class PoiDto {
         this.rating = rating;
         this.comment = comment;
         this.recordedAt = recordedAt;
+        this.photoBase64 = photoBase64;
     }
 }

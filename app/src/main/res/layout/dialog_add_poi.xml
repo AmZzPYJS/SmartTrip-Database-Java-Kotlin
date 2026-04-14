@@ -9,5 +9,33 @@
         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Commentaire" android:textSize="14sp" android:textColor="#374151" android:layout_marginBottom="4dp"/>
         <EditText android:id="@+id/editPoiComment" android:layout_width="match_parent" android:layout_height="wrap_content" android:hint="Ton avis, astuces, remarques..." android:inputType="textMultiLine" android:minLines="3" android:maxLines="5" android:gravity="top" android:layout_marginBottom="16dp"/>
         <TextView android:id="@+id/tvPoiCoords" android:layout_width="wrap_content" android:layout_height="wrap_content" android:textSize="12sp" android:textColor="#9CA3AF" android:textStyle="italic"/>
+        <!-- Bouton photo -->
+        <Button
+            android:id="@+id/btnTakePhoto"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="📷  Prendre une photo"
+            android:layout_marginTop="16dp"
+            android:layout_marginBottom="8dp" />
+
+        <!-- Aperçu de la photo prise -->
+        <ImageView
+            android:id="@+id/imgPoiPreview"
+            android:layout_width="match_parent"
+            android:layout_height="200dp"
+            android:scaleType="centerCrop"
+            android:visibility="gone"
+            android:layout_marginTop="8dp" />
+
+        <!-- Statut photo -->
+        <TextView
+            android:id="@+id/tvPhotoStatus"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text=""
+            android:textSize="12sp"
+            android:textColor="#059669"
+            android:layout_marginTop="4dp" />
     </LinearLayout>
+
 </ScrollView>
