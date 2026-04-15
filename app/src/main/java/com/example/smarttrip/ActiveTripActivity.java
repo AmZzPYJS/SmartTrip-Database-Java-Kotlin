@@ -6,6 +6,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.view.LayoutInflater;
 import android.view.View;
+import com.example.smarttrip.api.PhotoDto;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.EditText;
@@ -56,6 +57,10 @@ import retrofit2.Response;
  */
 public class ActiveTripActivity extends AppCompatActivity {
 
+    private TextView tvPhotoCount;
+    private int memoryPhotosCount = 0;
+    private static final int REQUEST_MEMORY_PHOTO = 1002;
+    private Uri memoryPhotoUri;
     private TextView tvTripStatus;
     private TextView tvGpsCount;
     private TextView tvPoiCount;
@@ -93,6 +98,9 @@ public class ActiveTripActivity extends AppCompatActivity {
         tvBatteryLive = findViewById(R.id.tvBatteryLive);
         btnAddPoi = findViewById(R.id.btnAddPoi);
         btnStopTrip = findViewById(R.id.btnStopTrip);
+        tvPhotoCount = findViewById(R.id.tvPhotoCount);
+        Button btnTakeMemoryPhoto = findViewById(R.id.btnTakeMemoryPhoto);
+        btnTakeMemoryPhoto.setOnClickListener(v -> takeMemoryPhoto());
 
         tvTripStatus.setText("● Voyage en cours");
 
@@ -115,17 +123,25 @@ public class ActiveTripActivity extends AppCompatActivity {
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
-        if (requestCode == REQUEST_IMAGE_CAPTURE && resultCode == Activity.RESULT_OK) {
-            // Encoder la photo en Base64
-            photoBase64 = encodeImageToBase64(photoUri);
 
-            // Afficher l'aperçu dans le dialog
+        // Photo pour POI (existant)
+        if (requestCode == REQUEST_IMAGE_CAPTURE && resultCode == Activity.RESULT_OK) {
+            photoBase64 = encodeImageToBase64(photoUri);
             if (currentImgPreview != null && photoUri != null) {
                 currentImgPreview.setVisibility(View.VISIBLE);
                 currentImgPreview.setImageURI(photoUri);
             }
             if (currentTvPhotoStatus != null) {
                 currentTvPhotoStatus.setText("✓ Photo prise — sera envoyée avec le POI");
+            }
+        }
+
+        // Photo souvenir (NOUVEAU)
+        if (requestCode == REQUEST_MEMORY_PHOTO && resultCode == Activity.RESULT_OK) {
+            String memoryBase64 = encodeImageToBase64(memoryPhotoUri);
+            if (memoryBase64 != null && !collectedPoints.isEmpty()) {
+                GpsPoint lastPoint = collectedPoints.get(collectedPoints.size() - 1);
+                sendMemoryPhotoToCloud(memoryBase64, lastPoint.getLat(), lastPoint.getLng());
             }
         }
     }
@@ -175,6 +191,79 @@ public class ActiveTripActivity extends AppCompatActivity {
         String imageFileName = "SMARTTRIP_" + timeStamp;
         File storageDir = getExternalFilesDir("Pictures");
         return File.createTempFile(imageFileName, ".jpg", storageDir);
+    }
+
+
+    /**
+     * Lance la caméra pour prendre une photo souvenir.
+     * Différent du POI : la photo est envoyée seule, sans formulaire.
+     */
+    private void takeMemoryPhoto() {
+        if (collectedPoints.isEmpty()) {
+            Toast.makeText(this,
+                    "Attendez au moins un point GPS avant de prendre une photo",
+                    Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        Intent takePictureIntent = new Intent(MediaStore.ACTION_IMAGE_CAPTURE);
+        if (takePictureIntent.resolveActivity(getPackageManager()) != null) {
+            File photoFile;
+            try {
+                photoFile = createImageFile();
+            } catch (IOException ex) {
+                Toast.makeText(this, "Erreur création fichier photo", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            memoryPhotoUri = FileProvider.getUriForFile(this,
+                    "com.example.smarttrip.fileprovider", photoFile);
+            takePictureIntent.putExtra(MediaStore.EXTRA_OUTPUT, memoryPhotoUri);
+            startActivityForResult(takePictureIntent, REQUEST_MEMORY_PHOTO);
+        } else {
+            Toast.makeText(this, "Aucune caméra disponible", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    /**
+     * Envoie une photo souvenir au backend.
+     */
+    private void sendMemoryPhotoToCloud(String photoBase64, double lat, double lng) {
+        String timestamp = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.FRANCE)
+                .format(new Date());
+
+        LocationDto location = new LocationDto(lat, lng, 5.0);
+
+        PhotoDto dto = new PhotoDto(
+                "amin",
+                "trip_" + tripStartTime,
+                location,
+                photoBase64,
+                timestamp
+        );
+
+        ApiClient.getInstance().getApiService().sendPhoto(dto).enqueue(new Callback<Map<String, Object>>() {
+            @Override
+            public void onResponse(Call<Map<String, Object>> call, Response<Map<String, Object>> response) {
+                if (response.isSuccessful()) {
+                    memoryPhotosCount++;
+                    runOnUiThread(() -> {
+                        tvPhotoCount.setText(memoryPhotosCount + " photo(s) prise(s)");
+                        Toast.makeText(ActiveTripActivity.this,
+                                "Photo souvenir envoyée au cloud ✓",
+                                Toast.LENGTH_SHORT).show();
+                    });
+                } else {
+                    runOnUiThread(() -> Toast.makeText(ActiveTripActivity.this,
+                            "Erreur envoi photo cloud", Toast.LENGTH_SHORT).show());
+                }
+            }
+
+            @Override
+            public void onFailure(Call<Map<String, Object>> call, Throwable t) {
+                runOnUiThread(() -> Toast.makeText(ActiveTripActivity.this,
+                        "Erreur réseau : photo non envoyée", Toast.LENGTH_SHORT).show());
+            }
+        });
     }
 
     /**
@@ -241,7 +330,13 @@ public class ActiveTripActivity extends AppCompatActivity {
                 BatteryHelper.isCharging(this)
         );
 
-        GpsDataDto dto = new GpsDataDto("amin", location, battery, timestamp);
+        GpsDataDto dto = new GpsDataDto(
+                "amin",
+                "trip_" + tripStartTime,   // ← AJOUT
+                location,
+                battery,
+                timestamp
+        );
 
         ApiClient.getInstance().getApiService().sendGps(dto).enqueue(new Callback<Map<String, Object>>() {
             @Override
@@ -344,7 +439,7 @@ public class ActiveTripActivity extends AppCompatActivity {
                 poi.getRating(),
                 poi.getComment(),
                 timestamp,
-                photoBase64   // ← nouveau paramètre
+                photoBase64
         );
 
         ApiClient.getInstance().getApiService().sendPoi(dto).enqueue(new Callback<Map<String, Object>>() {

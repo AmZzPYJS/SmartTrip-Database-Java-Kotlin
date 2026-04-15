@@ -44,4 +44,15 @@ public interface ApiService {
 
     @GET("/pois/{user_id}")
     Call<List<Map<String, Object>>> getUserPois(@Path("user_id") String userId);
+
+    // --- PHOTOS SOUVENIRS ---
+
+    @POST("/photos")
+    Call<Map<String, Object>> sendPhoto(@Body PhotoDto photo);
+
+    @GET("/photos")
+    Call<List<Map<String, Object>>> getAllPhotos();
+
+    @GET("/photos/{user_id}")
+    Call<List<Map<String, Object>>> getUserPhotos(@Path("user_id") String userId);
 }

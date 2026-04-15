@@ -2,32 +2,52 @@ package com.example.smarttrip;
 
 import android.content.Intent;
 import android.os.Bundle;
+import android.widget.ProgressBar;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
+import com.example.smarttrip.api.ApiClient;
+
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
-import java.util.Arrays;
+import java.util.Collections;
+import java.util.Date;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+
+import retrofit2.Call;
+import retrofit2.Callback;
+import retrofit2.Response;
 
 /**
- * Écran d'historique des voyages.
+ * Écran d'historique des voyages — données récupérées depuis MongoDB.
  *
- * Affiche la liste des voyages enregistrés.
- * Pour l'instant, utilise des données de démonstration réalistes.
- *
- * TODO (intégration cloud) :
- * - Remplacer loadDemoTrips() par un appel à l'API FastAPI
- * - Endpoint prévu : GET /api/trips
- * - Format attendu : JSON array de Trip (voir Trip.java)
+ * Logique :
+ * 1. Au démarrage, fait 3 appels parallèles : GET /gps/amin, /pois/amin, /photos/amin
+ * 2. Groupe les éléments par trip_id
+ * 3. Construit une liste de Trip avec leurs points/POI/photos
+ * 4. Affiche dans le RecyclerView
  */
 public class TripsActivity extends AppCompatActivity implements TripAdapter.OnTripClickListener {
 
     private RecyclerView recyclerTrips;
     private TripAdapter adapter;
-    private List<Trip> voyages;
+    private ProgressBar progressBar;
+    private TextView tvEmpty;
+    private List<Trip> voyages = new ArrayList<>();
+
+    // Maps temporaires pour grouper par trip_id
+    private Map<String, List<GpsPoint>> gpsByTrip = new HashMap<>();
+    private Map<String, List<Poi>> poisByTrip = new HashMap<>();
+    private Map<String, String> dateByTrip = new HashMap<>();
+
+    private int loadingsRemaining = 2; // GPS + POI
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -35,114 +55,223 @@ public class TripsActivity extends AppCompatActivity implements TripAdapter.OnTr
         setContentView(R.layout.activity_trips);
 
         recyclerTrips = findViewById(R.id.recyclerTrips);
+        progressBar = findViewById(R.id.progressBar);
+        tvEmpty = findViewById(R.id.tvEmpty);
+
         recyclerTrips.setLayoutManager(new LinearLayoutManager(this));
-
-        // Charger les voyages (démo pour l'instant, API plus tard)
-        voyages = loadDemoTrips();
-
         adapter = new TripAdapter(voyages, this);
         recyclerTrips.setAdapter(adapter);
+
+        loadTripsFromCloud();
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        // Recharger à chaque fois qu'on revient sur cet écran
+        // (ex: après avoir terminé un voyage)
+        gpsByTrip.clear();
+        poisByTrip.clear();
+        dateByTrip.clear();
+        voyages.clear();
+        adapter.notifyDataSetChanged();
+        loadingsRemaining = 2;
+        progressBar.setVisibility(android.view.View.VISIBLE);
+        tvEmpty.setVisibility(android.view.View.GONE);
+        loadTripsFromCloud();
     }
 
     @Override
     public void onTripClick(Trip trip, int position) {
         Intent intent = new Intent(TripsActivity.this, TripDetailsActivity.class);
-        intent.putExtra("trip", trip); // Trip est Serializable
+        intent.putExtra("trip", trip);
         startActivity(intent);
     }
 
     /**
-     * Données de démonstration réalistes.
-     * Chaque voyage contient de vrais points GPS et POI
-     * pour que la démo soit crédible en soutenance.
-     *
-     * À REMPLACER par l'appel API quand le backend sera prêt.
+     * Lance les 2 appels parallèles GPS + POI.
      */
-    private List<Trip> loadDemoTrips() {
-        List<Trip> trips = new ArrayList<>();
+    private void loadTripsFromCloud() {
+        loadGpsFromCloud();
+        loadPoisFromCloud();
+    }
 
-        // --- Voyage 1 : Paris ---
-        List<GpsPoint> gpsParisP = new ArrayList<>(Arrays.asList(
-                new GpsPoint(48.8566, 2.3522, 1712300000),  // Châtelet
-                new GpsPoint(48.8606, 2.3376, 1712301000),  // Louvre
-                new GpsPoint(48.8584, 2.2945, 1712302000),  // Tour Eiffel
-                new GpsPoint(48.8530, 2.3499, 1712303000),  // Notre-Dame
-                new GpsPoint(48.8738, 2.2950, 1712304000)   // Arc de Triomphe
-        ));
+    private void loadGpsFromCloud() {
+        ApiClient.getInstance().getApiService().getUserGps("amin")
+                .enqueue(new Callback<List<Map<String, Object>>>() {
+                    @Override
+                    public void onResponse(Call<List<Map<String, Object>>> call,
+                                           Response<List<Map<String, Object>>> response) {
+                        if (response.isSuccessful() && response.body() != null) {
+                            for (Map<String, Object> doc : response.body()) {
+                                parseGpsDoc(doc);
+                            }
+                        }
+                        onLoadingComplete();
+                    }
 
-        List<Poi> poisParis = new ArrayList<>(Arrays.asList(
-                new Poi("Le Bouillon Chartier", "restaurant",
-                        48.8738, 2.3430, 4,
-                        "Cuisine française traditionnelle, cadre historique",
-                        ""),
-                new Poi("Musée du Louvre", "monument",
-                        48.8606, 2.3376, 5,
-                        "Collection exceptionnelle, prévoir 3h minimum",
-                        ""),
-                new Poi("Tour Eiffel", "monument",
-                        48.8584, 2.2945, 5,
-                        "Vue imprenable au 2e étage",
-                        "")
-        ));
+                    @Override
+                    public void onFailure(Call<List<Map<String, Object>>> call, Throwable t) {
+                        Toast.makeText(TripsActivity.this,
+                                "Erreur réseau GPS : " + t.getMessage(),
+                                Toast.LENGTH_SHORT).show();
+                        onLoadingComplete();
+                    }
+                });
+    }
 
-        trips.add(new Trip("trip_001", "Week-end à Paris",
-                "05/04/2026", "Visite des monuments principaux",
-                false, gpsParisP, poisParis));
+    private void loadPoisFromCloud() {
+        ApiClient.getInstance().getApiService().getUserPois("amin")
+                .enqueue(new Callback<List<Map<String, Object>>>() {
+                    @Override
+                    public void onResponse(Call<List<Map<String, Object>>> call,
+                                           Response<List<Map<String, Object>>> response) {
+                        if (response.isSuccessful() && response.body() != null) {
+                            for (Map<String, Object> doc : response.body()) {
+                                parsePoiDoc(doc);
+                            }
+                        }
+                        onLoadingComplete();
+                    }
 
-        // --- Voyage 2 : Marseille ---
-        List<GpsPoint> gpsMarseille = new ArrayList<>(Arrays.asList(
-                new GpsPoint(43.2965, 5.3698, 1711900000),  // Vieux-Port
-                new GpsPoint(43.2842, 5.3745, 1711901000),  // Notre-Dame de la Garde
-                new GpsPoint(43.2114, 5.4103, 1711902000),  // Calanques
-                new GpsPoint(43.2961, 5.3742, 1711903000)   // Le Panier
-        ));
+                    @Override
+                    public void onFailure(Call<List<Map<String, Object>>> call, Throwable t) {
+                        onLoadingComplete();
+                    }
+                });
+    }
 
-        List<Poi> poisMarseille = new ArrayList<>(Arrays.asList(
-                new Poi("Chez Fonfon", "restaurant",
-                        43.2856, 5.3523, 4,
-                        "Bouillabaisse authentique, un peu cher",
-                        ""),
-                new Poi("Calanque de Sormiou", "nature",
-                        43.2114, 5.4103, 5,
-                        "Randonnée de 45min, eau turquoise",
-                        "")
-        ));
+    /**
+     * Parse un document GPS de MongoDB et l'ajoute dans la map groupée.
+     */
+    @SuppressWarnings("unchecked")
+    private void parseGpsDoc(Map<String, Object> doc) {
+        try {
+            String tripId = (String) doc.get("trip_id");
+            if (tripId == null) tripId = "trip_unknown"; // fallback pour anciens points sans trip_id
 
-        trips.add(new Trip("trip_002", "Escapade Marseille",
-                "02/04/2026", "Calanques et gastronomie",
-                false, gpsMarseille, poisMarseille));
+            Map<String, Object> location = (Map<String, Object>) doc.get("location");
+            double lat = ((Number) location.get("latitude")).doubleValue();
+            double lng = ((Number) location.get("longitude")).doubleValue();
 
-        // --- Voyage 3 : Lyon ---
-        List<GpsPoint> gpsLyon = new ArrayList<>(Arrays.asList(
-                new GpsPoint(45.7640, 4.8357, 1711600000),  // Place Bellecour
-                new GpsPoint(45.7578, 4.8320, 1711601000),  // Vieux Lyon
-                new GpsPoint(45.7623, 4.8226, 1711602000),  // Fourvière
-                new GpsPoint(45.7676, 4.8344, 1711603000)   // Place des Terreaux
-        ));
+            String recordedAt = (String) doc.get("recorded_at");
+            long timestamp = parseTimestamp(recordedAt);
 
-        List<Poi> poisLyon = new ArrayList<>(Arrays.asList(
-                new Poi("Bouchon Chez Abel", "restaurant",
-                        45.7530, 4.8265, 4,
-                        "Quenelles de brochet incontournables",
-                        ""),
-                new Poi("Basilique de Fourvière", "monument",
-                        45.7623, 4.8226, 5,
-                        "Panorama sur tout Lyon",
-                        ""),
-                new Poi("Parc de la Tête d'Or", "nature",
-                        45.7750, 4.8555, 4,
-                        "Lac, zoo gratuit, idéal pour une pause",
-                        ""),
-                new Poi("Fresque des Lyonnais", "monument",
-                        45.7670, 4.8310, 3,
-                        "Mur peint impressionnant, quartier Saint-Jean",
-                        "")
-        ));
+            GpsPoint point = new GpsPoint(lat, lng, timestamp);
 
-        trips.add(new Trip("trip_003", "Lyon gastronomique",
-                "28/03/2026", "Bouchons et patrimoine",
-                false, gpsLyon, poisLyon));
+            if (!gpsByTrip.containsKey(tripId)) {
+                gpsByTrip.put(tripId, new ArrayList<>());
+            }
+            gpsByTrip.get(tripId).add(point);
 
-        return trips;
+            // Stocker la date du voyage (date du premier point)
+            if (!dateByTrip.containsKey(tripId)) {
+                dateByTrip.put(tripId, formatDate(recordedAt));
+            }
+        } catch (Exception e) {
+            // Ignorer les documents malformés
+        }
+    }
+
+    /**
+     * Parse un document POI de MongoDB.
+     */
+    @SuppressWarnings("unchecked")
+    private void parsePoiDoc(Map<String, Object> doc) {
+        try {
+            String tripId = (String) doc.get("trip_id");
+            if (tripId == null) tripId = "trip_unknown";
+
+            String name = (String) doc.get("name");
+            String type = (String) doc.get("type");
+            int rating = ((Number) doc.get("rating")).intValue();
+            String comment = (String) doc.get("comment");
+
+            Map<String, Object> location = (Map<String, Object>) doc.get("location");
+            double lat = ((Number) location.get("latitude")).doubleValue();
+            double lng = ((Number) location.get("longitude")).doubleValue();
+
+            Poi poi = new Poi(name, type, lat, lng, rating, comment, "");
+
+            if (!poisByTrip.containsKey(tripId)) {
+                poisByTrip.put(tripId, new ArrayList<>());
+            }
+            poisByTrip.get(tripId).add(poi);
+        } catch (Exception e) {
+            // Ignorer les documents malformés
+        }
+    }
+
+    /**
+     * Appelé après chaque chargement (GPS ou POI).
+     * Quand les 2 sont terminés, on construit la liste finale.
+     */
+    private void onLoadingComplete() {
+        loadingsRemaining--;
+        if (loadingsRemaining <= 0) {
+            buildTripsList();
+        }
+    }
+
+    /**
+     * Construit la liste finale de Trip à partir des maps groupées.
+     */
+    private void buildTripsList() {
+        progressBar.setVisibility(android.view.View.GONE);
+        voyages.clear();
+
+        // Tous les trip_ids (GPS + POI)
+        java.util.Set<String> allTripIds = new java.util.HashSet<>();
+        allTripIds.addAll(gpsByTrip.keySet());
+        allTripIds.addAll(poisByTrip.keySet());
+
+        for (String tripId : allTripIds) {
+            List<GpsPoint> points = gpsByTrip.getOrDefault(tripId, new ArrayList<>());
+            List<Poi> pois = poisByTrip.getOrDefault(tripId, new ArrayList<>());
+            String date = dateByTrip.getOrDefault(tripId, "Date inconnue");
+
+            // Nom du voyage : "Voyage du JJ/MM/AAAA"
+            String name = "Voyage du " + date;
+
+            Trip trip = new Trip(tripId, name, date, "Voyage cloud", false, points, pois);
+            voyages.add(trip);
+        }
+
+        // Tri : voyages les plus récents en premier
+        Collections.sort(voyages, (a, b) -> b.getDate().compareTo(a.getDate()));
+
+        if (voyages.isEmpty()) {
+            tvEmpty.setVisibility(android.view.View.VISIBLE);
+        } else {
+            tvEmpty.setVisibility(android.view.View.GONE);
+        }
+
+        adapter.notifyDataSetChanged();
+    }
+
+    /**
+     * Convertit un timestamp ISO 8601 en long (secondes Unix).
+     */
+    private long parseTimestamp(String iso) {
+        try {
+            SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.FRANCE);
+            return sdf.parse(iso).getTime() / 1000;
+        } catch (Exception e) {
+            return System.currentTimeMillis() / 1000;
+        }
+    }
+
+    /**
+     * Convertit un timestamp ISO en date lisible JJ/MM/AAAA.
+     */
+    private String formatDate(String iso) {
+        try {
+            SimpleDateFormat input = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.FRANCE);
+            SimpleDateFormat output = new SimpleDateFormat("dd/MM/yyyy", Locale.FRANCE);
+            Date date = input.parse(iso);
+            return output.format(date);
+        } catch (Exception e) {
+            return "Date inconnue";
+        }
     }
 }
