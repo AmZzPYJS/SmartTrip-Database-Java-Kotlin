@@ -30,10 +30,14 @@ public class GpsDataDto {
     @SerializedName("trip_id")
     private String tripId;
 
-    public GpsDataDto(String userId, String tripId, LocationDto location,
+    @SerializedName("trip_name")
+    private String tripName;
+
+    public GpsDataDto(String userId, String tripId, String tripName, LocationDto location,
                       BatteryDto battery, String recordedAt) {
         this.userId = userId;
         this.tripId = tripId;
+        this.tripName = tripName;
         this.location = location;
         this.battery = battery;
         this.recordedAt = recordedAt;

@@ -47,10 +47,14 @@ public class PoiDto {
     @SerializedName("photo_base64")
     private String photoBase64;  // null si pas de photo
 
-    public PoiDto(String userId, String tripId, String name, String type,
+    @SerializedName("trip_name")
+    private String tripName;
+
+    public PoiDto(String userId, String tripId, String tripName, String name, String type,
                   LocationDto location, int rating, String comment, String recordedAt, String photoBase64) {
         this.userId = userId;
         this.tripId = tripId;
+        this.tripName = tripName;
         this.name = name;
         this.type = type;
         this.location = location;
@@ -60,3 +64,4 @@ public class PoiDto {
         this.photoBase64 = photoBase64;
     }
 }
+

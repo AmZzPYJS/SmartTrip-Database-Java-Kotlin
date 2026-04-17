@@ -2,6 +2,7 @@ package com.example.smarttrip;
 
 import android.content.Intent;
 import android.os.Bundle;
+import android.widget.EditText;
 import android.widget.Button;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -39,7 +40,6 @@ public class MainActivity extends AppCompatActivity {
         // --- Navigation ---
 
         btnStartTrip.setOnClickListener(v -> {
-            // Vérifier la batterie avant de démarrer la collecte
             if (!BatteryHelper.shouldCollectData(this)) {
                 Toast.makeText(this,
                         "Batterie trop faible (" + BatteryHelper.getBatteryLevel(this)
@@ -48,8 +48,7 @@ public class MainActivity extends AppCompatActivity {
                 return;
             }
 
-            Intent intent = new Intent(MainActivity.this, ActiveTripActivity.class);
-            startActivity(intent);
+            showNameTripDialog();
         });
 
         btnViewTrips.setOnClickListener(v -> {
@@ -68,6 +67,30 @@ public class MainActivity extends AppCompatActivity {
         super.onResume();
         // Mettre à jour le statut batterie à chaque retour sur cet écran
         updateBatteryStatus();
+    }
+
+    private void showNameTripDialog() {
+        final EditText input = new EditText(this);
+        input.setHint("Ex: Week-end Paris, Visite Versailles...");
+        input.setSingleLine(true);
+
+        new androidx.appcompat.app.AlertDialog.Builder(this)
+                .setTitle("Nommer votre voyage")
+                .setMessage("Donnez un nom à ce voyage pour le retrouver facilement")
+                .setView(input)
+                .setPositiveButton("Démarrer", (dialog, which) -> {
+                    String tripName = input.getText().toString().trim();
+                    if (tripName.isEmpty()) {
+                        tripName = "Voyage du " + new java.text.SimpleDateFormat("dd/MM/yyyy", java.util.Locale.FRANCE)
+                                .format(new java.util.Date());
+                    }
+
+                    Intent intent = new Intent(MainActivity.this, ActiveTripActivity.class);
+                    intent.putExtra("trip_name", tripName);
+                    startActivity(intent);
+                })
+                .setNegativeButton("Annuler", null)
+                .show();
     }
 
     /**

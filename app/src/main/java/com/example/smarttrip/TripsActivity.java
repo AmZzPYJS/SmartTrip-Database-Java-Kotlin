@@ -45,6 +45,7 @@ public class TripsActivity extends AppCompatActivity implements TripAdapter.OnTr
     // Maps temporaires pour grouper par trip_id
     private Map<String, List<GpsPoint>> gpsByTrip = new HashMap<>();
     private Map<String, List<Poi>> poisByTrip = new HashMap<>();
+    private Map<String, String> nameByTrip = new HashMap<>();
     private Map<String, String> dateByTrip = new HashMap<>();
 
     private int loadingsRemaining = 2; // GPS + POI
@@ -61,8 +62,6 @@ public class TripsActivity extends AppCompatActivity implements TripAdapter.OnTr
         recyclerTrips.setLayoutManager(new LinearLayoutManager(this));
         adapter = new TripAdapter(voyages, this);
         recyclerTrips.setAdapter(adapter);
-
-        loadTripsFromCloud();
     }
 
     @Override
@@ -72,6 +71,7 @@ public class TripsActivity extends AppCompatActivity implements TripAdapter.OnTr
         // (ex: après avoir terminé un voyage)
         gpsByTrip.clear();
         poisByTrip.clear();
+        nameByTrip.clear();
         dateByTrip.clear();
         voyages.clear();
         adapter.notifyDataSetChanged();
@@ -168,6 +168,12 @@ public class TripsActivity extends AppCompatActivity implements TripAdapter.OnTr
             if (!dateByTrip.containsKey(tripId)) {
                 dateByTrip.put(tripId, formatDate(recordedAt));
             }
+            if (!nameByTrip.containsKey(tripId)) {
+                String name = (String) doc.get("trip_name");
+                if (name != null && !name.isEmpty()) {
+                    nameByTrip.put(tripId, name);
+                }
+            }
         } catch (Exception e) {
             // Ignorer les documents malformés
         }
@@ -197,6 +203,13 @@ public class TripsActivity extends AppCompatActivity implements TripAdapter.OnTr
                 poisByTrip.put(tripId, new ArrayList<>());
             }
             poisByTrip.get(tripId).add(poi);
+
+            if (!nameByTrip.containsKey(tripId)) {
+                String tripNameFromDoc = (String) doc.get("trip_name");
+                if (tripNameFromDoc != null && !tripNameFromDoc.isEmpty()) {
+                    nameByTrip.put(tripId, tripNameFromDoc);
+                }
+            }
         } catch (Exception e) {
             // Ignorer les documents malformés
         }
@@ -231,7 +244,7 @@ public class TripsActivity extends AppCompatActivity implements TripAdapter.OnTr
             String date = dateByTrip.getOrDefault(tripId, "Date inconnue");
 
             // Nom du voyage : "Voyage du JJ/MM/AAAA"
-            String name = "Voyage du " + date;
+            String name = nameByTrip.getOrDefault(tripId, "Voyage du " + date);
 
             Trip trip = new Trip(tripId, name, date, "Voyage cloud", false, points, pois);
             voyages.add(trip);

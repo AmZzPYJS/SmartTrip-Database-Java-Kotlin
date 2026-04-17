@@ -58,6 +58,7 @@ import retrofit2.Response;
 public class ActiveTripActivity extends AppCompatActivity {
 
     private TextView tvPhotoCount;
+    private String tripName;
     private int memoryPhotosCount = 0;
     private static final int REQUEST_MEMORY_PHOTO = 1002;
     private Uri memoryPhotoUri;
@@ -84,6 +85,7 @@ public class ActiveTripActivity extends AppCompatActivity {
     static final double BASE_LAT = 48.8014;
     static final double BASE_LNG = 2.1301;
 
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -91,23 +93,30 @@ public class ActiveTripActivity extends AppCompatActivity {
 
         tripStartTime = System.currentTimeMillis();
 
+        // 1. D'ABORD tous les findViewById
         tvTripStatus = findViewById(R.id.tvTripStatus);
         tvGpsCount = findViewById(R.id.tvGpsCount);
         tvPoiCount = findViewById(R.id.tvPoiCount);
         tvCloudCount = findViewById(R.id.tvCloudCount);
         tvBatteryLive = findViewById(R.id.tvBatteryLive);
+        tvPhotoCount = findViewById(R.id.tvPhotoCount);
         btnAddPoi = findViewById(R.id.btnAddPoi);
         btnStopTrip = findViewById(R.id.btnStopTrip);
-        tvPhotoCount = findViewById(R.id.tvPhotoCount);
         Button btnTakeMemoryPhoto = findViewById(R.id.btnTakeMemoryPhoto);
-        btnTakeMemoryPhoto.setOnClickListener(v -> takeMemoryPhoto());
 
-        tvTripStatus.setText("● Voyage en cours");
+        // 2. ENSUITE récupérer le nom du voyage
+        tripName = getIntent().getStringExtra("trip_name");
+        if (tripName == null || tripName.isEmpty()) {
+            tripName = "Voyage du " + new SimpleDateFormat("dd/MM/yyyy", Locale.FRANCE).format(new Date());
+        }
 
+        // 3. ENSUITE utiliser les vues
+        tvTripStatus.setText("● " + tripName);
+
+        // 4. Le reste
         startGpsCollection();
-
         btnAddPoi.setOnClickListener(v -> showAddPoiDialog());
-
+        btnTakeMemoryPhoto.setOnClickListener(v -> takeMemoryPhoto());
         btnStopTrip.setOnClickListener(v -> {
             new AlertDialog.Builder(this)
                     .setTitle("Terminer le voyage ?")
@@ -330,13 +339,7 @@ public class ActiveTripActivity extends AppCompatActivity {
                 BatteryHelper.isCharging(this)
         );
 
-        GpsDataDto dto = new GpsDataDto(
-                "amin",
-                "trip_" + tripStartTime,   // ← AJOUT
-                location,
-                battery,
-                timestamp
-        );
+        GpsDataDto dto = new GpsDataDto("amin", "trip_" + tripStartTime, tripName, location, battery, timestamp);
 
         ApiClient.getInstance().getApiService().sendGps(dto).enqueue(new Callback<Map<String, Object>>() {
             @Override
@@ -433,6 +436,7 @@ public class ActiveTripActivity extends AppCompatActivity {
         PoiDto dto = new PoiDto(
                 "amin",
                 "trip_" + tripStartTime,
+                tripName,                    // ← AJOUT
                 poi.getName(),
                 poi.getType(),
                 location,
