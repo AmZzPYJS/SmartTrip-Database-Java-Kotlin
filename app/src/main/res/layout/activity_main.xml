@@ -1,54 +1,97 @@
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android" android:layout_width="match_parent" android:layout_height="match_parent" android:orientation="vertical" android:gravity="center" android:padding="24dp" android:background="#F8FAFC">
-    <TextView
-        android:id="@+id/tvTitle"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="Smart Trip"
-        android:textSize="34sp"
-        android:textStyle="bold"
-        android:textColor="#111827"
-        android:layout_marginBottom="8dp"/>
-    <TextView
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="Enregistrez et revivez vos voyages"
-        android:textSize="14sp"
-        android:textColor="#6B7280"
-        android:layout_marginBottom="40dp"/>
-    <Button
-        android:id="@+id/btnStartTrip"
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@color/background">
+
+    <!-- Header violet -->
+    <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="▶ Démarrer un voyage"
-        android:layout_marginBottom="16dp"
-        android:minHeight="48dp"/>
-    <Button
-        android:id="@+id/btnViewTrips"
+        android:background="@color/primary"
+        android:orientation="vertical"
+        android:padding="32dp"
+        android:paddingTop="48dp"
+        android:paddingBottom="40dp"
+        android:gravity="center">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="🗺️"
+            android:textSize="48sp"
+            android:layout_marginBottom="12dp" />
+
+        <TextView
+            android:id="@+id/tvTitle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="SmartTrip"
+            android:textSize="32sp"
+            android:textStyle="bold"
+            android:textColor="@color/white"
+            android:letterSpacing="0.02"
+            android:layout_marginBottom="8dp" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Enregistrez et revivez vos voyages"
+            android:textSize="14sp"
+            android:textColor="#CCE0FF"
+            android:gravity="center" />
+
+    </LinearLayout>
+
+    <!-- Contenu -->
+    <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="📋 Voir les voyages"
-        android:layout_marginBottom="16dp"
-        android:minHeight="48dp"/>
-    <Button
-        android:id="@+id/btnSettings"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="⚙ Paramètres"
-        android:minHeight="48dp"/>
-    <!--  Spacer  -->
-    <View
-        android:layout_width="0dp"
         android:layout_height="0dp"
-        android:layout_weight="1"/>
-    <!--  Statut batterie en bas de l'écran  -->
-    <TextView
-        android:id="@+id/tvBatteryStatus"
+        android:layout_weight="1"
+        android:orientation="vertical"
+        android:padding="24dp"
+        android:gravity="center_vertical">
+
+        <Button
+            android:id="@+id/btnStartTrip"
+            android:layout_width="match_parent"
+            android:layout_height="56dp"
+            android:text="▶   Démarrer un voyage"
+            android:layout_marginBottom="12dp" />
+
+        <Button
+            android:id="@+id/btnViewTrips"
+            android:layout_width="match_parent"
+            android:layout_height="56dp"
+            android:text="📋   Voir mes voyages"
+            style="@style/Widget.SmartTrip.Button.Secondary"
+            android:layout_marginBottom="12dp" />
+
+        <Button
+            android:id="@+id/btnSettings"
+            android:layout_width="match_parent"
+            android:layout_height="56dp"
+            android:text="⚙   Paramètres"
+            style="@style/Widget.SmartTrip.Button.Secondary" />
+
+    </LinearLayout>
+
+    <!-- Barre batterie en bas -->
+    <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="Batterie : chargement..."
-        android:textSize="12sp"
-        android:textColor="#9CA3AF"
-        android:gravity="center"
-        android:padding="8dp"
-        android:background="#F1F5F9"/>
+        android:background="@color/surface"
+        android:padding="16dp"
+        android:gravity="center">
+
+        <TextView
+            android:id="@+id/tvBatteryStatus"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Batterie : chargement..."
+            android:textSize="12sp"
+            android:textColor="@color/text_muted" />
+    </LinearLayout>
+
 </LinearLayout>

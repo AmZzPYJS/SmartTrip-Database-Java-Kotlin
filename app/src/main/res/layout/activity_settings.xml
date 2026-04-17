@@ -1,19 +1,128 @@
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android" android:layout_width="match_parent" android:layout_height="match_parent" android:orientation="vertical" android:padding="24dp" android:background="#F8FAFC">
-    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Paramètres" android:textSize="28sp" android:textStyle="bold" android:textColor="#111827" android:layout_marginBottom="24dp"/>
-    <!--  Section Batterie  -->
-    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Gestion de la batterie" android:textSize="18sp" android:textStyle="bold" android:textColor="#374151" android:layout_marginBottom="12dp"/>
-    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:background="#FFFFFF" android:orientation="vertical" android:padding="16dp" android:elevation="1dp" android:layout_marginBottom="16dp">
-        <TextView android:id="@+id/tvBatteryInfo" android:layout_width="wrap_content" android:layout_height="wrap_content" android:textSize="14sp" android:textColor="#374151" android:lineSpacingExtra="6dp"/>
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@color/background">
+
+    <!-- Header -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="@color/primary"
+        android:padding="24dp"
+        android:paddingTop="40dp">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Paramètres"
+            android:textSize="26sp"
+            android:textStyle="bold"
+            android:textColor="@color/white" />
     </LinearLayout>
-    <!--  Section Collecte GPS  -->
-    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Collecte de données" android:textSize="18sp" android:textStyle="bold" android:textColor="#374151" android:layout_marginBottom="12dp"/>
-    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:background="#FFFFFF" android:orientation="vertical" android:padding="16dp" android:elevation="1dp" android:layout_marginBottom="12dp">
-        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center_vertical">
-            <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="Collecte GPS active" android:textSize="15sp" android:textColor="#374151"/>
-            <Switch android:id="@+id/switchGps" android:layout_width="wrap_content" android:layout_height="wrap_content"/>
+
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="match_parent">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="16dp">
+
+            <!-- Section Batterie -->
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="BATTERIE"
+                android:textSize="11sp"
+                android:textStyle="bold"
+                android:textColor="@color/primary"
+                android:letterSpacing="0.1"
+                android:layout_marginBottom="8dp"
+                android:layout_marginTop="8dp" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="@color/surface"
+                android:orientation="vertical"
+                android:padding="16dp"
+                android:elevation="1dp"
+                android:layout_marginBottom="16dp">
+
+                <TextView
+                    android:id="@+id/tvBatteryInfo"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textSize="14sp"
+                    android:textColor="@color/text_secondary"
+                    android:lineSpacingExtra="6dp" />
+            </LinearLayout>
+
+            <!-- Section Collecte -->
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="COLLECTE DE DONNÉES"
+                android:textSize="11sp"
+                android:textStyle="bold"
+                android:textColor="@color/primary"
+                android:letterSpacing="0.1"
+                android:layout_marginBottom="8dp" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="@color/surface"
+                android:orientation="vertical"
+                android:padding="16dp"
+                android:elevation="1dp"
+                android:layout_marginBottom="16dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical">
+
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="Collecte GPS active"
+                        android:textSize="15sp"
+                        android:textColor="@color/text_primary" />
+
+                    <Switch
+                        android:id="@+id/switchGps"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content" />
+                </LinearLayout>
+
+                <TextView
+                    android:id="@+id/tvThreshold"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textSize="12sp"
+                    android:textColor="@color/text_hint"
+                    android:layout_marginTop="8dp" />
+            </LinearLayout>
+
+            <!-- Info technique -->
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Backend : MongoDB Atlas + FastAPI\nStockage : Cloud NoSQL\nVersion : 1.0"
+                android:textSize="12sp"
+                android:textColor="@color/text_hint"
+                android:lineSpacingExtra="4dp"
+                android:gravity="center"
+                android:layout_marginTop="16dp" />
+
         </LinearLayout>
-        <TextView android:id="@+id/tvThreshold" android:layout_width="wrap_content" android:layout_height="wrap_content" android:textSize="12sp" android:textColor="#9CA3AF" android:layout_marginTop="8dp"/>
-    </LinearLayout>
-    <!--  Info technique  -->
-    <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Backend : MongoDB Atlas + FastAPI\nStockage : Cloud NoSQL\nVersion : 1.0-demo" android:textSize="12sp" android:textColor="#9CA3AF" android:lineSpacingExtra="4dp" android:layout_marginTop="24dp" android:gravity="center"/>
+    </ScrollView>
+
 </LinearLayout>

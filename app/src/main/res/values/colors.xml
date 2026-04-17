@@ -1,5 +1,30 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="black">#FF000000</color>
-    <color name="white">#FFFFFFFF</color>
+    <!-- Couleurs principales -->
+    <color name="primary">#6C3AED</color>
+    <color name="primary_dark">#5B21B6</color>
+    <color name="primary_light">#EDE9FE</color>
+
+    <!-- Couleurs accent -->
+    <color name="accent_green">#059669</color>
+    <color name="accent_green_light">#ECFDF5</color>
+    <color name="accent_amber">#D97706</color>
+    <color name="accent_amber_light">#FEF3C7</color>
+    <color name="accent_red">#DC2626</color>
+    <color name="accent_purple_light">#F3E8FF</color>
+
+    <!-- Textes -->
+    <color name="text_primary">#111827</color>
+    <color name="text_secondary">#374151</color>
+    <color name="text_muted">#6B7280</color>
+    <color name="text_hint">#9CA3AF</color>
+
+    <!-- Fonds -->
+    <color name="background">#F8FAFC</color>
+    <color name="surface">#FFFFFF</color>
+    <color name="surface_alt">#F1F5F9</color>
+
+    <!-- Autres -->
+    <color name="white">#FFFFFF</color>
+    <color name="divider">#E5E7EB</color>
 </resources>
