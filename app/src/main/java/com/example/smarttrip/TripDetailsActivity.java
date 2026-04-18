@@ -4,11 +4,19 @@ import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
+import com.example.smarttrip.api.ApiClient;
 import android.graphics.drawable.BitmapDrawable;
 import android.os.Bundle;
 import android.view.MotionEvent;
 import android.widget.LinearLayout;
 import android.widget.TextView;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import android.util.Base64;
+import android.view.View;
+import android.widget.HorizontalScrollView;
+import android.widget.ImageView;
+import android.widget.LinearLayout;
 
 import androidx.appcompat.app.AppCompatActivity;
 
@@ -79,10 +87,14 @@ public class TripDetailsActivity extends AppCompatActivity {
             addPoiView(layoutPois, poi);
         }
 
+        // --- Marqueurs violets pour les photos souvenirs ---
+        loadPhotosForMap(trip);
+
         tvBattery.setText(BatteryHelper.getStatusMessage(this));
 
         // --- Carte ---
         setupMap(trip);
+        loadAndDisplayPhotos(trip);
     }
 
     // -------------------------------------------------------------------------
@@ -164,6 +176,150 @@ public class TripDetailsActivity extends AppCompatActivity {
             BoundingBox bbox = BoundingBox.fromGeoPoints(allPoints);
             mapView.post(() -> mapView.zoomToBoundingBox(bbox, true, 80));
         }
+    }
+
+    /**
+     * Crée un marqueur violet pour les photos souvenirs.
+     * Différent du rouge des POI pour les distinguer sur la carte.
+     */
+    private BitmapDrawable createPurpleMarker() {
+        android.graphics.Bitmap bitmap = android.graphics.Bitmap.createBitmap(40, 40,
+                android.graphics.Bitmap.Config.ARGB_8888);
+        android.graphics.Canvas canvas = new android.graphics.Canvas(bitmap);
+        android.graphics.Paint paint = new android.graphics.Paint();
+        paint.setAntiAlias(true);
+        paint.setColor(0xFF6C3AED); // violet SmartTrip
+        canvas.drawCircle(20, 20, 18, paint);
+        paint.setColor(0xFFFFFFFF);
+        paint.setTextSize(20f);
+        paint.setTextAlign(android.graphics.Paint.Align.CENTER);
+        canvas.drawText("📸", 20, 28, paint);
+        return new BitmapDrawable(getResources(), bitmap);
+    }
+
+    /**
+     * Charge les photos du voyage et les affiche comme marqueurs sur la carte.
+     */
+    private void loadPhotosForMap(Trip trip) {
+        ApiClient.getInstance().getApiService().getUserPhotos("amin")
+                .enqueue(new retrofit2.Callback<java.util.List<java.util.Map<String, Object>>>() {
+                    @Override
+                    public void onResponse(retrofit2.Call<java.util.List<java.util.Map<String, Object>>> call,
+                                           retrofit2.Response<java.util.List<java.util.Map<String, Object>>> response) {
+                        if (response.isSuccessful() && response.body() != null) {
+                            BitmapDrawable purpleIcon = createPurpleMarker();
+                            for (java.util.Map<String, Object> doc : response.body()) {
+                                String docTripId = (String) doc.get("trip_id");
+                                if (!trip.getId().equals(docTripId)) continue;
+
+                                // Récupérer les coordonnées GPS de la photo
+                                try {
+                                    java.util.Map<String, Object> location =
+                                            (java.util.Map<String, Object>) doc.get("location");
+                                    if (location == null) continue;
+                                    double lat = ((Number) location.get("latitude")).doubleValue();
+                                    double lng = ((Number) location.get("longitude")).doubleValue();
+                                    String recordedAt = (String) doc.get("recorded_at");
+
+                                    runOnUiThread(() -> {
+                                        Marker marker = new Marker(mapView);
+                                        marker.setPosition(new GeoPoint(lat, lng));
+                                        marker.setTitle("📸 Photo souvenir");
+                                        marker.setSnippet(recordedAt != null ? recordedAt : "");
+                                        marker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER);
+                                        marker.setIcon(purpleIcon);
+                                        mapView.getOverlays().add(marker);
+                                        mapView.invalidate();
+                                    });
+                                } catch (Exception e) {
+                                    // Document mal formé, ignorer
+                                }
+                            }
+                        }
+                    }
+
+                    @Override
+                    public void onFailure(retrofit2.Call<java.util.List<java.util.Map<String, Object>>> call,
+                                          Throwable t) {
+                        // Photos non disponibles pour la carte
+                    }
+                });
+    }
+
+    /**
+     * Charge les photos du voyage depuis le cloud et les affiche.
+     */
+    private void loadAndDisplayPhotos(Trip trip) {
+        ApiClient.getInstance().getApiService().getUserPhotos("amin")
+                .enqueue(new retrofit2.Callback<java.util.List<java.util.Map<String, Object>>>() {
+                    @Override
+                    public void onResponse(retrofit2.Call<java.util.List<java.util.Map<String, Object>>> call,
+                                           retrofit2.Response<java.util.List<java.util.Map<String, Object>>> response) {
+                        if (response.isSuccessful() && response.body() != null) {
+                            // Filtrer par trip_id
+                            for (java.util.Map<String, Object> doc : response.body()) {
+                                String docTripId = (String) doc.get("trip_id");
+                                if (trip.getId().equals(docTripId)) {
+                                    String base64 = (String) doc.get("photo_base64");
+                                    if (base64 != null) {
+                                        runOnUiThread(() -> addPhotoToGallery(base64));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    @Override
+                    public void onFailure(retrofit2.Call<java.util.List<java.util.Map<String, Object>>> call,
+                                          Throwable t) {
+                        // Photos non disponibles, pas bloquant
+                    }
+                });
+    }
+
+    /**
+     * Ajoute une photo en miniature dans la galerie horizontale.
+     */
+    private void addPhotoToGallery(String base64) {
+        LinearLayout galleryLayout = (LinearLayout) findViewById(R.id.layoutPhotoGallery);
+        if (galleryLayout == null) return;
+
+        try {
+            byte[] decodedBytes = android.util.Base64.decode(base64, android.util.Base64.DEFAULT);
+            android.graphics.Bitmap bitmap = android.graphics.BitmapFactory.decodeByteArray(
+                    decodedBytes, 0, decodedBytes.length);
+
+            ImageView imgView = new ImageView(this);
+            int size = (int) (120 * getResources().getDisplayMetrics().density);
+            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(size, size);
+            params.setMargins(0, 0, 16, 0);
+            imgView.setLayoutParams(params);
+            imgView.setScaleType(ImageView.ScaleType.CENTER_CROP);
+            imgView.setImageBitmap(bitmap);
+            imgView.setOnClickListener(v -> showFullPhoto(bitmap));
+            galleryLayout.addView(imgView);
+
+            // Rendre visible le conteneur
+            HorizontalScrollView scrollView = findViewById(R.id.scrollPhotoGallery);
+            if (scrollView != null) scrollView.setVisibility(View.VISIBLE);
+
+        } catch (Exception e) {
+            // Image corrompue, ignorer
+        }
+    }
+
+    /**
+     * Affiche une photo en plein écran.
+     */
+    private void showFullPhoto(android.graphics.Bitmap bitmap) {
+        ImageView fullImg = new ImageView(this);
+        fullImg.setImageBitmap(bitmap);
+        fullImg.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        fullImg.setPadding(16, 16, 16, 16);
+
+        new androidx.appcompat.app.AlertDialog.Builder(this)
+                .setView(fullImg)
+                .setPositiveButton("Fermer", null)
+                .show();
     }
 
     /**

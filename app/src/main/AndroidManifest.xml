@@ -14,18 +14,11 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="com.example.smarttrip">
 
-    <!-- Permission batterie (nécessaire pour BatteryHelper) -->
-    <!-- Note : BATTERY_STATS est une permission normale, pas besoin de demande runtime -->
-
-    <!-- Permissions GPS — à décommenter quand tu intègres le vrai GPS -->
-    <!--
-    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
-    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
-    -->
-
-    <!-- Permission Internet — nécessaire pour l'API FastAPI et OSMDroid -->
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
 
     <application
         android:allowBackup="true"

@@ -9,14 +9,35 @@
         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Commentaire" android:textSize="14sp" android:textColor="#374151" android:layout_marginBottom="4dp"/>
         <EditText android:id="@+id/editPoiComment" android:layout_width="match_parent" android:layout_height="wrap_content" android:hint="Ton avis, astuces, remarques..." android:inputType="textMultiLine" android:minLines="3" android:maxLines="5" android:gravity="top" android:layout_marginBottom="16dp"/>
         <TextView android:id="@+id/tvPoiCoords" android:layout_width="wrap_content" android:layout_height="wrap_content" android:textSize="12sp" android:textColor="#9CA3AF" android:textStyle="italic"/>
-        <!-- Bouton photo -->
-        <Button
-            android:id="@+id/btnTakePhoto"
-            android:layout_width="match_parent"
+        <TextView
+            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="📷  Prendre une photo"
+            android:text="Photo associée (optionnel)"
+            android:textSize="14sp"
+            android:textColor="#374151"
             android:layout_marginTop="16dp"
             android:layout_marginBottom="8dp" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/btnTakePhotoPoi"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="📷 Caméra"
+                android:layout_marginEnd="8dp" />
+
+            <Button
+                android:id="@+id/btnPickGalleryPoi"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="🖼 Galerie" />
+        </LinearLayout>
 
         <!-- Aperçu de la photo prise -->
         <ImageView

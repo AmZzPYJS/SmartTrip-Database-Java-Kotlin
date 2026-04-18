@@ -5,6 +5,7 @@ import android.os.Bundle;
 import android.widget.EditText;
 import android.widget.Button;
 import android.widget.TextView;
+import com.example.smarttrip.api.ApiClient;
 import android.widget.Toast;
 
 import androidx.appcompat.app.AppCompatActivity;
@@ -25,6 +26,7 @@ public class MainActivity extends AppCompatActivity {
     private Button btnViewTrips;
     private Button btnSettings;
     private TextView tvBatteryStatus;
+    private TextView tvStatsCloud;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -36,6 +38,7 @@ public class MainActivity extends AppCompatActivity {
         btnViewTrips = findViewById(R.id.btnViewTrips);
         btnSettings = findViewById(R.id.btnSettings);
         tvBatteryStatus = findViewById(R.id.tvBatteryStatus);
+        tvStatsCloud = findViewById(R.id.tvStatsCloud);
 
         // --- Navigation ---
 
@@ -67,6 +70,7 @@ public class MainActivity extends AppCompatActivity {
         super.onResume();
         // Mettre à jour le statut batterie à chaque retour sur cet écran
         updateBatteryStatus();
+        loadStats();
     }
 
     private void showNameTripDialog() {
@@ -91,6 +95,33 @@ public class MainActivity extends AppCompatActivity {
                 })
                 .setNegativeButton("Annuler", null)
                 .show();
+    }
+
+    private void loadStats() {
+        ApiClient.getInstance().getApiService().getUserGps("amin")
+                .enqueue(new retrofit2.Callback<java.util.List<java.util.Map<String, Object>>>() {
+                    @Override
+                    public void onResponse(retrofit2.Call<java.util.List<java.util.Map<String, Object>>> call,
+                                           retrofit2.Response<java.util.List<java.util.Map<String, Object>>> response) {
+                        if (response.isSuccessful() && response.body() != null) {
+                            // Compter les trip_id uniques = nombre de voyages
+                            java.util.Set<String> tripIds = new java.util.HashSet<>();
+                            for (java.util.Map<String, Object> doc : response.body()) {
+                                String tripId = (String) doc.get("trip_id");
+                                if (tripId != null) tripIds.add(tripId);
+                            }
+                            int nbVoyages = tripIds.size();
+                            int nbPoints = response.body().size();
+                            runOnUiThread(() -> tvStatsCloud.setText(
+                                    nbVoyages + " voyage(s) · " + nbPoints + " points GPS dans le cloud"));
+                        }
+                    }
+                    @Override
+                    public void onFailure(retrofit2.Call<java.util.List<java.util.Map<String, Object>>> call,
+                                          Throwable t) {
+                        runOnUiThread(() -> tvStatsCloud.setText("Cloud non connecté"));
+                    }
+                });
     }
 
     /**

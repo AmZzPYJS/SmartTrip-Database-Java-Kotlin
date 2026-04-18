@@ -1,23 +1,13 @@
 package com.example.smarttrip;
 
 import android.os.Bundle;
-import android.widget.LinearLayout;
+import android.widget.SeekBar;
 import android.widget.Switch;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import androidx.appcompat.app.AppCompatActivity;
 
-/**
- * Écran de paramètres de l'application.
- *
- * Paramètres disponibles :
- * - Activer/désactiver la collecte GPS
- * - Fréquence de collecte
- * - Statut batterie détaillé
- *
- * Pour la démo, les paramètres sont en mémoire uniquement.
- * TODO : persister avec SharedPreferences ou dans MongoDB.
- */
 public class SettingsActivity extends AppCompatActivity {
 
     @Override
@@ -28,24 +18,44 @@ public class SettingsActivity extends AppCompatActivity {
         TextView tvBatteryInfo = findViewById(R.id.tvBatteryInfo);
         Switch switchGps = findViewById(R.id.switchGps);
         TextView tvThreshold = findViewById(R.id.tvThreshold);
+        SeekBar seekBarThreshold = findViewById(R.id.seekBarThreshold);
 
-        // Afficher les infos batterie
+        // Infos batterie
         int batteryLevel = BatteryHelper.getBatteryLevel(this);
         boolean charging = BatteryHelper.isCharging(this);
         boolean canCollect = BatteryHelper.shouldCollectData(this);
+        int currentThreshold = BatteryHelper.getThreshold(this);
 
         String info = "Niveau : " + batteryLevel + "%\n"
                 + "En charge : " + (charging ? "Oui" : "Non") + "\n"
-                + "Collecte GPS : " + (canCollect ? "Autorisée" : "Suspendue") + "\n"
-                + "Seuil d'arrêt : " + BatteryHelper.getThreshold() + "%";
+                + "Collecte GPS : " + (canCollect ? "Autorisée" : "Suspendue");
         tvBatteryInfo.setText(info);
 
-        // Switch GPS (visuel pour la démo)
         switchGps.setChecked(canCollect);
-        switchGps.setOnCheckedChangeListener((buttonView, isChecked) -> {
-            // En production : sauvegarder la préférence
-        });
 
-        tvThreshold.setText("Seuil batterie minimum : " + BatteryHelper.getThreshold() + "%");
+        // SeekBar pour le seuil
+        tvThreshold.setText("Seuil d'arrêt : " + currentThreshold + "%");
+        seekBarThreshold.setMax(50);
+        seekBarThreshold.setProgress(currentThreshold);
+
+        seekBarThreshold.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override
+            public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
+                int threshold = Math.max(5, progress); // minimum 5%
+                tvThreshold.setText("Seuil d'arrêt : " + threshold + "%");
+            }
+
+            @Override
+            public void onStartTrackingTouch(SeekBar seekBar) {}
+
+            @Override
+            public void onStopTrackingTouch(SeekBar seekBar) {
+                int threshold = Math.max(5, seekBar.getProgress());
+                BatteryHelper.setThreshold(SettingsActivity.this, threshold);
+                Toast.makeText(SettingsActivity.this,
+                        "Seuil sauvegardé : " + threshold + "%",
+                        Toast.LENGTH_SHORT).show();
+            }
+        });
     }
 }

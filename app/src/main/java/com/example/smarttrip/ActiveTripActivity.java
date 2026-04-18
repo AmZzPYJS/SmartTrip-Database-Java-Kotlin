@@ -3,6 +3,7 @@ package com.example.smarttrip;
 import android.os.Bundle;
 import android.widget.ImageView;
 import android.os.Handler;
+import java.io.InputStream;
 import android.os.Looper;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -62,6 +63,7 @@ public class ActiveTripActivity extends AppCompatActivity {
     private int memoryPhotosCount = 0;
     private static final int REQUEST_MEMORY_PHOTO = 1002;
     private Uri memoryPhotoUri;
+    private Button btnDeleteLastPhoto;
     private TextView tvTripStatus;
     private TextView tvGpsCount;
     private TextView tvPoiCount;
@@ -80,6 +82,12 @@ public class ActiveTripActivity extends AppCompatActivity {
     private static final int REQUEST_IMAGE_CAPTURE = 1001;
     private long tripStartTime;
     private final Handler handler = new Handler(Looper.getMainLooper());
+    private static final int REQUEST_PICK_MEMORY_GALLERY = 1003;
+    private static final int MAX_PHOTOS = 20;
+    private TextView tvPhotoLimit;
+    private static final int REQUEST_PICK_GALLERY_POI = 1004;
+    private List<String> memoryPhotosBase64 = new ArrayList<>();
+    private List<double[]> memoryPhotosCoords = new ArrayList<>();
 
     // Position de base (Versailles / UVSQ) pour la simulation
     static final double BASE_LAT = 48.8014;
@@ -103,6 +111,11 @@ public class ActiveTripActivity extends AppCompatActivity {
         btnAddPoi = findViewById(R.id.btnAddPoi);
         btnStopTrip = findViewById(R.id.btnStopTrip);
         Button btnTakeMemoryPhoto = findViewById(R.id.btnTakeMemoryPhoto);
+        tvPhotoLimit = findViewById(R.id.tvPhotoLimit);
+        Button btnPickMemoryGallery = findViewById(R.id.btnPickMemoryGallery);
+        btnPickMemoryGallery.setOnClickListener(v -> pickMemoryFromGallery());
+        btnDeleteLastPhoto = findViewById(R.id.btnDeleteLastPhoto);
+        btnDeleteLastPhoto.setOnClickListener(v -> deleteLastPhoto());
 
         // 2. ENSUITE récupérer le nom du voyage
         tripName = getIntent().getStringExtra("trip_name");
@@ -145,12 +158,79 @@ public class ActiveTripActivity extends AppCompatActivity {
             }
         }
 
+        // Photo POI depuis galerie
+        if (requestCode == REQUEST_PICK_GALLERY_POI && resultCode == Activity.RESULT_OK && data != null) {
+            Uri selectedImage = data.getData();
+            if (selectedImage != null) {
+                photoBase64 = encodeImageToBase64(selectedImage);
+                if (currentImgPreview != null) {
+                    currentImgPreview.setVisibility(View.VISIBLE);
+                    currentImgPreview.setImageURI(selectedImage);
+                }
+                if (currentTvPhotoStatus != null) {
+                    currentTvPhotoStatus.setText("✓ Photo sélectionnée depuis la galerie");
+                }
+            }
+        }
+
+        // Photo souvenir depuis galerie
+        if (requestCode == REQUEST_PICK_MEMORY_GALLERY && resultCode == Activity.RESULT_OK && data != null) {
+            Uri selectedImage = data.getData();
+            if (selectedImage != null) {
+                // Lire les coordonnées GPS depuis les métadonnées EXIF
+                double[] coords = readExifCoordinates(selectedImage);
+                if (coords == null) {
+                    // Fallback : utiliser la position GPS actuelle
+                    if (!collectedPoints.isEmpty()) {
+                        GpsPoint last = collectedPoints.get(collectedPoints.size() - 1);
+                        coords = new double[]{last.getLat(), last.getLng()};
+                    } else {
+                        coords = new double[]{BASE_LAT, BASE_LNG};
+                    }
+                }
+                // Encoder en Base64
+                String base64 = encodeImageToBase64(selectedImage);
+                if (base64 != null) {
+                    memoryPhotosBase64.add(base64);
+                    memoryPhotosCoords.add(coords);
+                    memoryPhotosCount++;
+                    final double lat = coords[0];
+                    final double lng = coords[1];
+                    btnDeleteLastPhoto.setVisibility(View.VISIBLE);
+                    runOnUiThread(() -> {
+                        tvPhotoCount.setText(memoryPhotosCount + " photo(s) prise(s)");
+                        tvPhotoLimit.setText(memoryPhotosCount + " / " + MAX_PHOTOS + " photos");
+                        Toast.makeText(this,
+                                "Photo ajoutée — GPS: " + String.format("%.4f", lat) + ", " + String.format("%.4f", lng),
+                                Toast.LENGTH_SHORT).show();
+                    });
+                    // Envoyer au cloud
+                    sendMemoryPhotoToCloud(base64, coords[0], coords[1]);
+                }
+            }
+        }
+
         // Photo souvenir (NOUVEAU)
         if (requestCode == REQUEST_MEMORY_PHOTO && resultCode == Activity.RESULT_OK) {
+            if (memoryPhotosBase64.size() >= MAX_PHOTOS) {
+                Toast.makeText(this, "Limite de " + MAX_PHOTOS + " photos atteinte", Toast.LENGTH_SHORT).show();
+                return;
+            }
             String memoryBase64 = encodeImageToBase64(memoryPhotoUri);
-            if (memoryBase64 != null && !collectedPoints.isEmpty()) {
-                GpsPoint lastPoint = collectedPoints.get(collectedPoints.size() - 1);
-                sendMemoryPhotoToCloud(memoryBase64, lastPoint.getLat(), lastPoint.getLng());
+            if (memoryBase64 != null) {
+                double lat = BASE_LAT;
+                double lng = BASE_LNG;
+                if (!collectedPoints.isEmpty()) {
+                    GpsPoint lastPoint = collectedPoints.get(collectedPoints.size() - 1);
+                    lat = lastPoint.getLat();
+                    lng = lastPoint.getLng();
+                }
+                memoryPhotosBase64.add(memoryBase64);
+                memoryPhotosCoords.add(new double[]{lat, lng});
+                memoryPhotosCount++;
+                tvPhotoCount.setText(memoryPhotosCount + " photo(s) prise(s)");
+                tvPhotoLimit.setText(memoryPhotosCount + " / " + MAX_PHOTOS + " photos");
+                sendMemoryPhotoToCloud(memoryBase64, lat, lng);
             }
         }
     }
@@ -190,6 +270,58 @@ public class ActiveTripActivity extends AppCompatActivity {
                 handler.postDelayed(this, 5000);
             }
         }, 1000);
+    }
+
+    private void deleteLastPhoto() {
+        if (memoryPhotosBase64.isEmpty()) return;
+
+        new androidx.appcompat.app.AlertDialog.Builder(this)
+                .setTitle("Supprimer la dernière photo ?")
+                .setMessage("Cette action est irréversible.")
+                .setPositiveButton("Supprimer", (dialog, which) -> {
+                    memoryPhotosBase64.remove(memoryPhotosBase64.size() - 1);
+                    memoryPhotosCoords.remove(memoryPhotosCoords.size() - 1);
+                    memoryPhotosCount--;
+                    tvPhotoCount.setText(memoryPhotosCount + " photo(s) prise(s)");
+                    tvPhotoLimit.setText(memoryPhotosCount + " / " + MAX_PHOTOS + " photos");
+                    if (memoryPhotosBase64.isEmpty()) {
+                        btnDeleteLastPhoto.setVisibility(View.GONE);
+                    }
+                    Toast.makeText(this, "Dernière photo supprimée", Toast.LENGTH_SHORT).show();
+                })
+                .setNegativeButton("Annuler", null)
+                .show();
+    }
+
+    /**
+     * Ouvre la galerie pour choisir une photo souvenir.
+     */
+    private void pickMemoryFromGallery() {
+        if (memoryPhotosBase64.size() >= MAX_PHOTOS) {
+            Toast.makeText(this, "Limite de " + MAX_PHOTOS + " photos atteinte", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        Intent intent = new Intent(Intent.ACTION_PICK);
+        intent.setType("image/*");
+        startActivityForResult(intent, REQUEST_PICK_MEMORY_GALLERY);
+    }
+
+    /**
+     * Lit les métadonnées EXIF d'une image (coordonnées GPS et date).
+     * Retourne un tableau [lat, lng] ou null si pas de données GPS.
+     */
+    private double[] readExifCoordinates(Uri imageUri) {
+        try {
+            InputStream stream = getContentResolver().openInputStream(imageUri);
+            if (stream == null) return null;
+            androidx.exifinterface.media.ExifInterface exif =
+                    new androidx.exifinterface.media.ExifInterface(stream);
+            double[] latLng = exif.getLatLong();
+            stream.close();
+            return latLng; // null si pas de GPS dans les métadonnées
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     /**
@@ -380,11 +512,21 @@ public class ActiveTripActivity extends AppCompatActivity {
         photoBase64 = null;
         photoUri = null;
 
-        Button btnPhoto = dialogView.findViewById(R.id.btnTakePhoto);
+        Button btnPhoto = dialogView.findViewById(R.id.btnTakePhotoPoi);
         ImageView imgPreview = dialogView.findViewById(R.id.imgPoiPreview);
         TextView tvPhotoStatus = dialogView.findViewById(R.id.tvPhotoStatus);
 
         btnPhoto.setOnClickListener(v -> dispatchTakePictureIntent(imgPreview, tvPhotoStatus));
+
+        Button btnPickGallery = dialogView.findViewById(R.id.btnPickGalleryPoi);
+        btnPickGallery.setOnClickListener(v -> {
+            // Stocker refs pour récupérer dans onActivityResult
+            currentImgPreview = imgPreview;
+            currentTvPhotoStatus = tvPhotoStatus;
+            Intent intent = new Intent(Intent.ACTION_PICK);
+            intent.setType("image/*");
+            startActivityForResult(intent, REQUEST_PICK_GALLERY_POI);
+        });
 
         // Récupérer les coords GPS du dernier point collecté
         final double lat;

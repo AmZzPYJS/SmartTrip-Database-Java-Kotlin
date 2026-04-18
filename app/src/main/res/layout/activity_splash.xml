@@ -4,21 +4,31 @@
     android:layout_height="match_parent"
     android:gravity="center"
     android:orientation="vertical"
-    android:background="#FFFFFF">
+    android:background="@color/primary">
 
     <ImageView
         android:id="@+id/imgLogo"
-        android:layout_width="120dp"
-        android:layout_height="120dp"
+        android:layout_width="100dp"
+        android:layout_height="100dp"
         android:src="@mipmap/ic_launcher"
-        android:layout_marginBottom="20dp" />
+        android:layout_marginBottom="24dp" />
 
     <TextView
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="Smart Trip"
-        android:textSize="26sp"
+        android:text="SmartTrip"
+        android:textSize="32sp"
         android:textStyle="bold"
-        android:textColor="#111827" />
+        android:textColor="@color/white"
+        android:letterSpacing="0.05"
+        android:layout_marginBottom="8dp" />
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Carnet de voyage intelligent"
+        android:textSize="14sp"
+        android:textColor="#CCE0FF"
+        android:gravity="center" />
 
 </LinearLayout>

@@ -13,7 +13,7 @@
         android:orientation="vertical"
         android:padding="32dp"
         android:paddingTop="48dp"
-        android:paddingBottom="40dp"
+        android:paddingBottom="32dp"
         android:gravity="center">
 
         <TextView
@@ -24,7 +24,6 @@
             android:layout_marginBottom="12dp" />
 
         <TextView
-            android:id="@+id/tvTitle"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="SmartTrip"
@@ -37,14 +36,34 @@
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Enregistrez et revivez vos voyages"
+            android:text="Carnet de voyage intelligent"
             android:textSize="14sp"
             android:textColor="#CCE0FF"
-            android:gravity="center" />
+            android:gravity="center"
+            android:layout_marginBottom="16dp" />
+
+        <!-- Stats cloud -->
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:background="#33FFFFFF"
+            android:paddingStart="16dp"
+            android:paddingEnd="16dp"
+            android:paddingTop="8dp"
+            android:paddingBottom="8dp">
+
+            <TextView
+                android:id="@+id/tvStatsCloud"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Chargement..."
+                android:textSize="13sp"
+                android:textColor="@color/white" />
+        </LinearLayout>
 
     </LinearLayout>
 
-    <!-- Contenu -->
+    <!-- Boutons -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="0dp"
@@ -77,7 +96,7 @@
 
     </LinearLayout>
 
-    <!-- Barre batterie en bas -->
+    <!-- Barre batterie -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
