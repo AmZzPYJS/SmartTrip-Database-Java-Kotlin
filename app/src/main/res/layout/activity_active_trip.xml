@@ -33,7 +33,7 @@
             android:id="@+id/btnDeleteLastPhoto"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="🗑 Supprimer dernière photo"
+            android:text="Voir mes photos"
             android:textSize="11sp"
             android:backgroundTint="#DC2626"
             android:textColor="@color/white"

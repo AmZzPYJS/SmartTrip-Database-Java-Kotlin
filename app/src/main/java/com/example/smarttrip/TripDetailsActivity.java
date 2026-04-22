@@ -140,14 +140,19 @@ public class TripDetailsActivity extends AppCompatActivity {
         }
 
         // --- Marqueurs rouges pour les POI ---
-        BitmapDrawable redIcon = createRedMarker();
         for (Poi poi : pois) {
             Marker marker = new Marker(mapView);
             marker.setPosition(new GeoPoint(poi.getLat(), poi.getLng()));
             marker.setTitle(poi.getName());
-            marker.setSnippet(poi.getType() + " • " + poi.getRatingStars());
-            marker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER);
-            marker.setIcon(redIcon);
+            marker.setSnippet(poi.getType() + " • " + poi.getRatingStars()
+                    + (poi.getComment() != null && !poi.getComment().isEmpty()
+                    ? "\n" + poi.getComment() : ""));
+            marker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM);
+            marker.setIcon(createLabeledMarker("P", 0xFFDC2626));
+            marker.setOnMarkerClickListener((m, map) -> {
+                m.showInfoWindow();
+                return true;
+            });
             mapView.getOverlays().add(marker);
         }
 
@@ -182,18 +187,44 @@ public class TripDetailsActivity extends AppCompatActivity {
      * Crée un marqueur violet pour les photos souvenirs.
      * Différent du rouge des POI pour les distinguer sur la carte.
      */
-    private BitmapDrawable createPurpleMarker() {
-        android.graphics.Bitmap bitmap = android.graphics.Bitmap.createBitmap(40, 40,
-                android.graphics.Bitmap.Config.ARGB_8888);
-        android.graphics.Canvas canvas = new android.graphics.Canvas(bitmap);
-        android.graphics.Paint paint = new android.graphics.Paint();
-        paint.setAntiAlias(true);
-        paint.setColor(0xFF6C3AED); // violet SmartTrip
-        canvas.drawCircle(20, 20, 18, paint);
-        paint.setColor(0xFFFFFFFF);
-        paint.setTextSize(20f);
-        paint.setTextAlign(android.graphics.Paint.Align.CENTER);
-        canvas.drawText("📸", 20, 28, paint);
+    private BitmapDrawable createPhotoMarkerIcon(Bitmap photo) {
+        float density = getResources().getDisplayMetrics().density;
+        int size = Math.round(56 * density);
+        int border = Math.round(4 * density);
+
+        Bitmap result = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888);
+        Canvas canvas = new Canvas(result);
+
+        // Bordure blanche
+        Paint paintBg = new Paint(Paint.ANTI_ALIAS_FLAG);
+        paintBg.setColor(Color.WHITE);
+        canvas.drawRoundRect(0, 0, size, size, 8 * density, 8 * density, paintBg);
+
+        // Photo dedans
+        Bitmap scaled = Bitmap.createScaledBitmap(photo,
+                size - border * 2, size - border * 2, true);
+        canvas.drawBitmap(scaled, border, border, null);
+
+        return new BitmapDrawable(getResources(), result);
+    }
+
+    private BitmapDrawable createLabeledMarker(String label, int color) {
+        float density = getResources().getDisplayMetrics().density;
+        int size = Math.round(40 * density);
+        Bitmap bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888);
+        Canvas canvas = new Canvas(bitmap);
+
+        Paint fill = new Paint(Paint.ANTI_ALIAS_FLAG);
+        fill.setColor(color);
+        canvas.drawCircle(size / 2f, size / 2f, size / 2f, fill);
+
+        Paint text = new Paint(Paint.ANTI_ALIAS_FLAG);
+        text.setColor(Color.WHITE);
+        text.setTextSize(16 * density);
+        text.setTextAlign(Paint.Align.CENTER);
+        text.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        canvas.drawText(label, size / 2f, size / 2f + 6 * density, text);
+
         return new BitmapDrawable(getResources(), bitmap);
     }
 
@@ -207,18 +238,16 @@ public class TripDetailsActivity extends AppCompatActivity {
                     public void onResponse(retrofit2.Call<java.util.List<java.util.Map<String, Object>>> call,
                                            retrofit2.Response<java.util.List<java.util.Map<String, Object>>> response) {
                         if (response.isSuccessful() && response.body() != null) {
-                            BitmapDrawable purpleIcon = createPurpleMarker();
                             for (java.util.Map<String, Object> doc : response.body()) {
                                 String docTripId = (String) doc.get("trip_id");
                                 if (!trip.getId().equals(docTripId)) continue;
-
-                                // Récupérer les coordonnées GPS de la photo
                                 try {
                                     java.util.Map<String, Object> location =
                                             (java.util.Map<String, Object>) doc.get("location");
                                     if (location == null) continue;
                                     double lat = ((Number) location.get("latitude")).doubleValue();
                                     double lng = ((Number) location.get("longitude")).doubleValue();
+                                    String base64 = (String) doc.get("photo_base64");
                                     String recordedAt = (String) doc.get("recorded_at");
 
                                     runOnUiThread(() -> {
@@ -227,22 +256,44 @@ public class TripDetailsActivity extends AppCompatActivity {
                                         marker.setTitle("📸 Photo souvenir");
                                         marker.setSnippet(recordedAt != null ? recordedAt : "");
                                         marker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER);
-                                        marker.setIcon(purpleIcon);
+
+                                        // Icône = vraie miniature de la photo
+                                        if (base64 != null) {
+                                            try {
+                                                byte[] bytes = android.util.Base64.decode(
+                                                        base64, android.util.Base64.DEFAULT);
+                                                Bitmap bmp = BitmapFactory.decodeByteArray(
+                                                        bytes, 0, bytes.length);
+                                                marker.setIcon(createPhotoMarkerIcon(bmp));
+                                            } catch (Exception e) {
+                                                marker.setIcon(createLabeledMarker("📸", 0xFF6C3AED));
+                                            }
+                                        } else {
+                                            marker.setIcon(createLabeledMarker("📸", 0xFF6C3AED));
+                                        }
+
+                                        // Clic → affiche la photo en grand
+                                        marker.setOnMarkerClickListener((m, map) -> {
+                                            if (base64 != null) {
+                                                byte[] bytes = android.util.Base64.decode(
+                                                        base64, android.util.Base64.DEFAULT);
+                                                Bitmap bmp = BitmapFactory.decodeByteArray(
+                                                        bytes, 0, bytes.length);
+                                                showFullPhoto(bmp);
+                                            }
+                                            return true;
+                                        });
+
                                         mapView.getOverlays().add(marker);
                                         mapView.invalidate();
                                     });
-                                } catch (Exception e) {
-                                    // Document mal formé, ignorer
-                                }
+                                } catch (Exception e) { /* ignorer */ }
                             }
                         }
                     }
-
                     @Override
                     public void onFailure(retrofit2.Call<java.util.List<java.util.Map<String, Object>>> call,
-                                          Throwable t) {
-                        // Photos non disponibles pour la carte
-                    }
+                                          Throwable t) {}
                 });
     }
 

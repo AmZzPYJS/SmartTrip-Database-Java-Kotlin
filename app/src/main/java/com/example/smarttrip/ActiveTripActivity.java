@@ -5,6 +5,12 @@ import android.widget.ImageView;
 import android.os.Handler;
 import java.io.InputStream;
 import android.os.Looper;
+import android.location.Location;
+import android.location.LocationListener;
+import android.location.LocationManager;
+import androidx.core.app.ActivityCompat;
+import android.Manifest;
+import android.content.pm.PackageManager;
 import android.view.LayoutInflater;
 import android.view.View;
 import com.example.smarttrip.api.PhotoDto;
@@ -26,6 +32,16 @@ import androidx.core.content.FileProvider;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.IOException;
+
+import android.widget.LinearLayout;
+import android.widget.ScrollView;
+import android.widget.ImageView;
+import android.widget.Button;
+import android.widget.TextView;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import android.util.Base64;
+import android.view.View;
 
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
@@ -85,6 +101,9 @@ public class ActiveTripActivity extends AppCompatActivity {
     private static final int REQUEST_PICK_MEMORY_GALLERY = 1003;
     private static final int MAX_PHOTOS = 20;
     private TextView tvPhotoLimit;
+    private android.location.LocationListener locationListener;
+    private LocationManager locationManager;
+    private Location lastKnownLocation;
     private static final int REQUEST_PICK_GALLERY_POI = 1004;
     private List<String> memoryPhotosBase64 = new ArrayList<>();
     private List<double[]> memoryPhotosCoords = new ArrayList<>();
@@ -115,7 +134,7 @@ public class ActiveTripActivity extends AppCompatActivity {
         Button btnPickMemoryGallery = findViewById(R.id.btnPickMemoryGallery);
         btnPickMemoryGallery.setOnClickListener(v -> pickMemoryFromGallery());
         btnDeleteLastPhoto = findViewById(R.id.btnDeleteLastPhoto);
-        btnDeleteLastPhoto.setOnClickListener(v -> deleteLastPhoto());
+        btnDeleteLastPhoto.setOnClickListener(v -> showPhotosManager());
 
         // 2. ENSUITE récupérer le nom du voyage
         tripName = getIntent().getStringExtra("trip_name");
@@ -238,58 +257,136 @@ public class ActiveTripActivity extends AppCompatActivity {
     /**
      * Simule la collecte GPS et envoie chaque point au cloud.
      */
+
     private void startGpsCollection() {
-        handler.postDelayed(new Runnable() {
+        locationManager = (LocationManager) getSystemService(LOCATION_SERVICE);
+
+        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)
+                != PackageManager.PERMISSION_GRANTED) {
+            ActivityCompat.requestPermissions(this,
+                    new String[]{Manifest.permission.ACCESS_FINE_LOCATION}, 99);
+            return;
+        }
+
+        locationListener = new LocationListener() {
             @Override
-            public void run() {
+            public void onLocationChanged(Location location) {
                 if (!isCollecting) return;
 
                 if (!BatteryHelper.shouldCollectData(ActiveTripActivity.this)) {
                     isCollecting = false;
                     tvTripStatus.setText("⚠ Collecte suspendue — batterie faible");
-                    Toast.makeText(ActiveTripActivity.this,
-                            "Batterie en dessous de " + BatteryHelper.getThreshold()
-                                    + "% — collecte GPS arrêtée automatiquement",
-                            Toast.LENGTH_LONG).show();
+                    locationManager.removeUpdates(locationListener);
                     return;
                 }
 
-                double lat = BASE_LAT + (Math.random() - 0.5) * 0.01;
-                double lng = BASE_LNG + (Math.random() - 0.5) * 0.01;
+                lastKnownLocation = location;
+                double lat = location.getLatitude();
+                double lng = location.getLongitude();
                 long timestamp = System.currentTimeMillis() / 1000;
 
-                GpsPoint point = new GpsPoint(lat, lng, timestamp);
+                GpsPoint point = new GpsPoint(lat, lng, timestamp,
+                        location.getAltitude(), location.getAccuracy());
                 collectedPoints.add(point);
-                tvGpsCount.setText(collectedPoints.size() + " points GPS");
+
+                runOnUiThread(() -> {
+                    tvGpsCount.setText(collectedPoints.size() + " points GPS");
+                    tvBatteryLive.setText(BatteryHelper.getStatusMessage(
+                            ActiveTripActivity.this));
+                });
 
                 sendGpsToCloud(point);
-
-                tvBatteryLive.setText(BatteryHelper.getStatusMessage(
-                        ActiveTripActivity.this));
-
-                handler.postDelayed(this, 5000);
             }
-        }, 1000);
+
+            @Override public void onStatusChanged(String p, int s, Bundle e) {}
+            @Override public void onProviderEnabled(String p) {}
+            @Override public void onProviderDisabled(String p) {
+                runOnUiThread(() -> Toast.makeText(ActiveTripActivity.this,
+                        "GPS désactivé — activez la localisation", Toast.LENGTH_LONG).show());
+            }
+        };
+
+        locationManager.requestLocationUpdates(
+                LocationManager.GPS_PROVIDER,
+                5000,
+                5f,
+                locationListener);
     }
 
-    private void deleteLastPhoto() {
-        if (memoryPhotosBase64.isEmpty()) return;
+    private void showPhotosManager() {
+        if (memoryPhotosBase64.isEmpty()) {
+            Toast.makeText(this, "Aucune photo souvenir", Toast.LENGTH_SHORT).show();
+            return;
+        }
 
-        new androidx.appcompat.app.AlertDialog.Builder(this)
-                .setTitle("Supprimer la dernière photo ?")
-                .setMessage("Cette action est irréversible.")
-                .setPositiveButton("Supprimer", (dialog, which) -> {
-                    memoryPhotosBase64.remove(memoryPhotosBase64.size() - 1);
-                    memoryPhotosCoords.remove(memoryPhotosCoords.size() - 1);
-                    memoryPhotosCount--;
-                    tvPhotoCount.setText(memoryPhotosCount + " photo(s) prise(s)");
-                    tvPhotoLimit.setText(memoryPhotosCount + " / " + MAX_PHOTOS + " photos");
-                    if (memoryPhotosBase64.isEmpty()) {
-                        btnDeleteLastPhoto.setVisibility(View.GONE);
-                    }
-                    Toast.makeText(this, "Dernière photo supprimée", Toast.LENGTH_SHORT).show();
-                })
-                .setNegativeButton("Annuler", null)
+        LinearLayout layout = new LinearLayout(this);
+        layout.setOrientation(LinearLayout.VERTICAL);
+        layout.setPadding(32, 32, 32, 32);
+
+        android.widget.ScrollView scrollView = new android.widget.ScrollView(this);
+        scrollView.addView(layout);
+
+        for (int i = 0; i < memoryPhotosBase64.size(); i++) {
+            final int index = i;
+            String b64 = memoryPhotosBase64.get(i);
+
+            LinearLayout row = new LinearLayout(this);
+            row.setOrientation(LinearLayout.HORIZONTAL);
+            row.setPadding(0, 8, 0, 8);
+
+            // Miniature
+            ImageView img = new ImageView(this);
+            byte[] bytes = Base64.decode(b64, Base64.DEFAULT);
+            Bitmap bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
+            img.setImageBitmap(bmp);
+            int size = (int) (80 * getResources().getDisplayMetrics().density);
+            LinearLayout.LayoutParams imgParams = new LinearLayout.LayoutParams(size, size);
+            imgParams.setMargins(0, 0, 24, 0);
+            img.setLayoutParams(imgParams);
+            img.setScaleType(ImageView.ScaleType.CENTER_CROP);
+            row.addView(img);
+
+            // Infos + bouton supprimer
+            LinearLayout infoLayout = new LinearLayout(this);
+            infoLayout.setOrientation(LinearLayout.VERTICAL);
+            infoLayout.setLayoutParams(new LinearLayout.LayoutParams(
+                    0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+
+            TextView tvInfo = new TextView(this);
+            double[] coords = memoryPhotosCoords.get(i);
+            tvInfo.setText("Photo " + (i + 1) + "\n"
+                    + String.format("%.5f, %.5f", coords[0], coords[1]));
+            tvInfo.setTextSize(13);
+            infoLayout.addView(tvInfo);
+
+            Button btnDel = new Button(this);
+            btnDel.setText("Supprimer");
+            btnDel.setTextColor(0xFFDC2626);
+            btnDel.setBackgroundColor(0x00000000);
+            btnDel.setOnClickListener(v -> {
+                memoryPhotosBase64.remove(index);
+                memoryPhotosCoords.remove(index);
+                memoryPhotosCount--;
+                tvPhotoCount.setText(memoryPhotosCount + " photo(s) prise(s)");
+                tvPhotoLimit.setText(memoryPhotosCount + " / " + MAX_PHOTOS + " photos");
+                Toast.makeText(this, "Photo supprimée", Toast.LENGTH_SHORT).show();
+            });
+            infoLayout.addView(btnDel);
+            row.addView(infoLayout);
+            layout.addView(row);
+
+            // Séparateur
+            View divider = new View(this);
+            divider.setBackgroundColor(0xFFE5E7EB);
+            divider.setLayoutParams(new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, 1));
+            layout.addView(divider);
+        }
+
+        new AlertDialog.Builder(this)
+                .setTitle("Mes photos souvenirs (" + memoryPhotosBase64.size() + ")")
+                .setView(scrollView)
+                .setPositiveButton("Fermer", null)
                 .show();
     }
 
@@ -371,9 +468,7 @@ public class ActiveTripActivity extends AppCompatActivity {
     private void sendMemoryPhotoToCloud(String photoBase64, double lat, double lng) {
         String timestamp = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.FRANCE)
                 .format(new Date());
-
         LocationDto location = new LocationDto(lat, lng, 5.0);
-
         PhotoDto dto = new PhotoDto(
                 "amin",
                 "trip_" + tripStartTime,
@@ -381,24 +476,19 @@ public class ActiveTripActivity extends AppCompatActivity {
                 photoBase64,
                 timestamp
         );
-
         ApiClient.getInstance().getApiService().sendPhoto(dto).enqueue(new Callback<Map<String, Object>>() {
             @Override
             public void onResponse(Call<Map<String, Object>> call, Response<Map<String, Object>> response) {
                 if (response.isSuccessful()) {
-                    memoryPhotosCount++;
-                    runOnUiThread(() -> {
-                        tvPhotoCount.setText(memoryPhotosCount + " photo(s) prise(s)");
-                        Toast.makeText(ActiveTripActivity.this,
-                                "Photo souvenir envoyée au cloud ✓",
-                                Toast.LENGTH_SHORT).show();
-                    });
+                    // ← SUPPRIMÉ : memoryPhotosCount++ ici c'était le double comptage
+                    runOnUiThread(() -> Toast.makeText(ActiveTripActivity.this,
+                            "Photo souvenir envoyée au cloud ✓",
+                            Toast.LENGTH_SHORT).show());
                 } else {
                     runOnUiThread(() -> Toast.makeText(ActiveTripActivity.this,
                             "Erreur envoi photo cloud", Toast.LENGTH_SHORT).show());
                 }
             }
-
             @Override
             public void onFailure(Call<Map<String, Object>> call, Throwable t) {
                 runOnUiThread(() -> Toast.makeText(ActiveTripActivity.this,
@@ -531,7 +621,10 @@ public class ActiveTripActivity extends AppCompatActivity {
         // Récupérer les coords GPS du dernier point collecté
         final double lat;
         final double lng;
-        if (!collectedPoints.isEmpty()) {
+        if (lastKnownLocation != null) {
+            lat = lastKnownLocation.getLatitude();
+            lng = lastKnownLocation.getLongitude();
+        } else if (!collectedPoints.isEmpty()) {
             GpsPoint lastPoint = collectedPoints.get(collectedPoints.size() - 1);
             lat = lastPoint.getLat();
             lng = lastPoint.getLng();
@@ -615,6 +708,11 @@ public class ActiveTripActivity extends AppCompatActivity {
      * Termine le voyage et retourne à l'accueil.
      */
     private void stopTrip() {
+        isCollecting = false;
+        handler.removeCallbacksAndMessages(null);
+        if (locationManager != null) {
+            locationManager.removeUpdates(locationListener); // arrêter le GPS
+        }
         isCollecting = false;
         handler.removeCallbacksAndMessages(null);
 
