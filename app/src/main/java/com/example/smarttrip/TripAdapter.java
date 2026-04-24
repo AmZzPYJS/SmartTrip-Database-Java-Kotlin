@@ -49,6 +49,12 @@ public class TripAdapter extends RecyclerView.Adapter<TripAdapter.TripViewHolder
     public void onBindViewHolder(@NonNull TripViewHolder holder, int position) {
         Trip trip = trips.get(position);
         holder.bind(trip, listener, position);
+        holder.itemView.setOnLongClickListener(v -> {
+            if (listener instanceof TripsActivity) {
+                ((TripsActivity) listener).onTripLongClick(trip, position);
+            }
+            return true;
+        });
     }
 
     @Override

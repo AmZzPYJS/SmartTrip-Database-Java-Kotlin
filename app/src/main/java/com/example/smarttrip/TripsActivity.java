@@ -2,62 +2,51 @@ package com.example.smarttrip;
 
 import android.content.Intent;
 import android.os.Bundle;
+import android.view.View;
 import android.widget.ProgressBar;
 import android.widget.TextView;
 import android.widget.Toast;
-
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
-
 import com.example.smarttrip.api.ApiClient;
-
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Date;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-
+import java.util.Set;
 import retrofit2.Call;
 import retrofit2.Callback;
 import retrofit2.Response;
 
-/**
- * Écran d'historique des voyages — données récupérées depuis MongoDB.
- *
- * Logique :
- * 1. Au démarrage, fait 3 appels parallèles : GET /gps/amin, /pois/amin, /photos/amin
- * 2. Groupe les éléments par trip_id
- * 3. Construit une liste de Trip avec leurs points/POI/photos
- * 4. Affiche dans le RecyclerView
- */
 public class TripsActivity extends AppCompatActivity implements TripAdapter.OnTripClickListener {
 
-    private RecyclerView recyclerTrips;
     private TripAdapter adapter;
     private ProgressBar progressBar;
     private TextView tvEmpty;
     private List<Trip> voyages = new ArrayList<>();
 
-    // Maps temporaires pour grouper par trip_id
-    private Map<String, List<GpsPoint>> gpsByTrip = new HashMap<>();
-    private Map<String, List<Poi>> poisByTrip = new HashMap<>();
-    private Map<String, String> nameByTrip = new HashMap<>();
-    private Map<String, String> dateByTrip = new HashMap<>();
+    private Map<String, List<GpsPoint>> gpsByTrip    = new HashMap<>();
+    private Map<String, List<Poi>>      poisByTrip   = new HashMap<>();
+    private Map<String, String>         nameByTrip   = new HashMap<>();
+    private Map<String, String>         dateByTrip   = new HashMap<>();
+    private Map<String, String>         poiDateByTrip = new HashMap<>();
 
-    private int loadingsRemaining = 2; // GPS + POI
+    private int loadingsRemaining = 2;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_trips);
 
-        recyclerTrips = findViewById(R.id.recyclerTrips);
+        RecyclerView recyclerTrips = findViewById(R.id.recyclerTrips);
         progressBar = findViewById(R.id.progressBar);
-        tvEmpty = findViewById(R.id.tvEmpty);
+        tvEmpty     = findViewById(R.id.tvEmpty);
 
         recyclerTrips.setLayoutManager(new LinearLayoutManager(this));
         adapter = new TripAdapter(voyages, this);
@@ -67,30 +56,96 @@ public class TripsActivity extends AppCompatActivity implements TripAdapter.OnTr
     @Override
     protected void onResume() {
         super.onResume();
-        // Recharger à chaque fois qu'on revient sur cet écran
-        // (ex: après avoir terminé un voyage)
         gpsByTrip.clear();
         poisByTrip.clear();
         nameByTrip.clear();
         dateByTrip.clear();
+        poiDateByTrip.clear();
         voyages.clear();
         adapter.notifyDataSetChanged();
         loadingsRemaining = 2;
-        progressBar.setVisibility(android.view.View.VISIBLE);
-        tvEmpty.setVisibility(android.view.View.GONE);
+        progressBar.setVisibility(View.VISIBLE);
+        tvEmpty.setVisibility(View.GONE);
         loadTripsFromCloud();
     }
 
     @Override
     public void onTripClick(Trip trip, int position) {
-        Intent intent = new Intent(TripsActivity.this, TripDetailsActivity.class);
+        // Clic simple → détail
+        Intent intent = new Intent(this, TripDetailsActivity.class);
         intent.putExtra("trip", trip);
         startActivity(intent);
     }
 
-    /**
-     * Lance les 2 appels parallèles GPS + POI.
-     */
+    // Appel depuis TripAdapter pour appui long
+    public void onTripLongClick(Trip trip, int position) {
+        String[] options = {"Voir le détail", "Partager", "Supprimer"};
+        new androidx.appcompat.app.AlertDialog.Builder(this)
+                .setTitle(trip.getTitle())
+                .setItems(options, (dialog, which) -> {
+                    if (which == 0) {
+                        onTripClick(trip, position);
+                    } else if (which == 1) {
+                        shareTrip(trip);
+                    } else {
+                        confirmDeleteTrip(trip, position);
+                    }
+                })
+                .show();
+    }
+
+    private void shareTrip(Trip trip) {
+        String text = "🗺 Voyage SmartTrip : " + trip.getTitle() + "\n"
+                + "📅 Date : " + trip.getDate() + "\n"
+                + "📍 " + trip.getGpsPoints().size() + " points GPS\n"
+                + "⭐ " + trip.getPois().size() + " points d'intérêt\n"
+                + "Enregistré avec SmartTrip — Carnet de voyage intelligent";
+
+        Intent shareIntent = new Intent(Intent.ACTION_SEND);
+        shareIntent.setType("text/plain");
+        shareIntent.putExtra(Intent.EXTRA_TEXT, text);
+        startActivity(Intent.createChooser(shareIntent, "Partager le voyage"));
+    }
+
+    private void confirmDeleteTrip(Trip trip, int position) {
+        new androidx.appcompat.app.AlertDialog.Builder(this)
+                .setTitle("Supprimer ce voyage ?")
+                .setMessage("\"" + trip.getTitle() + "\" sera supprimé définitivement du cloud.")
+                .setPositiveButton("Supprimer", (d, w) -> deleteTrip(trip, position))
+                .setNegativeButton("Annuler", null)
+                .show();
+    }
+
+    private void deleteTrip(Trip trip, int position) {
+        ApiClient.getInstance().getApiService().deleteTrip(trip.getId())
+                .enqueue(new Callback<Map<String, Object>>() {
+                    @Override
+                    public void onResponse(Call<Map<String, Object>> call,
+                                           Response<Map<String, Object>> response) {
+                        runOnUiThread(() -> {
+                            if (response.isSuccessful()) {
+                                voyages.remove(position);
+                                adapter.notifyItemRemoved(position);
+                                adapter.notifyItemRangeChanged(position, voyages.size());
+                                Toast.makeText(TripsActivity.this,
+                                        "Voyage supprimé ✓", Toast.LENGTH_SHORT).show();
+                                if (voyages.isEmpty())
+                                    tvEmpty.setVisibility(View.VISIBLE);
+                            } else {
+                                Toast.makeText(TripsActivity.this,
+                                        "Erreur suppression (code " + response.code() + ")",
+                                        Toast.LENGTH_SHORT).show();
+                            }
+                        });
+                    }
+                    @Override
+                    public void onFailure(Call<Map<String, Object>> call, Throwable t) {
+                        runOnUiThread(() -> Toast.makeText(TripsActivity.this,
+                                "Erreur réseau : " + t.getMessage(), Toast.LENGTH_SHORT).show());
+                    }
+                });
+    }
+
     private void loadTripsFromCloud() {
         loadGpsFromCloud();
         loadPoisFromCloud();
@@ -102,19 +157,14 @@ public class TripsActivity extends AppCompatActivity implements TripAdapter.OnTr
                     @Override
                     public void onResponse(Call<List<Map<String, Object>>> call,
                                            Response<List<Map<String, Object>>> response) {
-                        if (response.isSuccessful() && response.body() != null) {
-                            for (Map<String, Object> doc : response.body()) {
-                                parseGpsDoc(doc);
-                            }
-                        }
+                        if (response.isSuccessful() && response.body() != null)
+                            for (Map<String, Object> doc : response.body()) parseGpsDoc(doc);
                         onLoadingComplete();
                     }
-
                     @Override
                     public void onFailure(Call<List<Map<String, Object>>> call, Throwable t) {
                         Toast.makeText(TripsActivity.this,
-                                "Erreur réseau GPS : " + t.getMessage(),
-                                Toast.LENGTH_SHORT).show();
+                                "Erreur réseau GPS : " + t.getMessage(), Toast.LENGTH_SHORT).show();
                         onLoadingComplete();
                     }
                 });
@@ -126,14 +176,10 @@ public class TripsActivity extends AppCompatActivity implements TripAdapter.OnTr
                     @Override
                     public void onResponse(Call<List<Map<String, Object>>> call,
                                            Response<List<Map<String, Object>>> response) {
-                        if (response.isSuccessful() && response.body() != null) {
-                            for (Map<String, Object> doc : response.body()) {
-                                parsePoiDoc(doc);
-                            }
-                        }
+                        if (response.isSuccessful() && response.body() != null)
+                            for (Map<String, Object> doc : response.body()) parsePoiDoc(doc);
                         onLoadingComplete();
                     }
-
                     @Override
                     public void onFailure(Call<List<Map<String, Object>>> call, Throwable t) {
                         onLoadingComplete();
@@ -141,150 +187,107 @@ public class TripsActivity extends AppCompatActivity implements TripAdapter.OnTr
                 });
     }
 
-    /**
-     * Parse un document GPS de MongoDB et l'ajoute dans la map groupée.
-     */
     @SuppressWarnings("unchecked")
     private void parseGpsDoc(Map<String, Object> doc) {
         try {
             String tripId = (String) doc.get("trip_id");
-            if (tripId == null) tripId = "trip_unknown"; // fallback pour anciens points sans trip_id
+            if (tripId == null) tripId = "trip_unknown";
 
-            Map<String, Object> location = (Map<String, Object>) doc.get("location");
-            double lat = ((Number) location.get("latitude")).doubleValue();
-            double lng = ((Number) location.get("longitude")).doubleValue();
-
+            Map<String, Object> loc = (Map<String, Object>) doc.get("location");
+            double lat = ((Number) loc.get("latitude")).doubleValue();
+            double lng = ((Number) loc.get("longitude")).doubleValue();
             String recordedAt = (String) doc.get("recorded_at");
-            long timestamp = parseTimestamp(recordedAt);
+            long ts = parseTimestamp(recordedAt);
 
-            GpsPoint point = new GpsPoint(lat, lng, timestamp);
+            if (!gpsByTrip.containsKey(tripId)) gpsByTrip.put(tripId, new ArrayList<>());
+            gpsByTrip.get(tripId).add(new GpsPoint(lat, lng, ts));
 
-            if (!gpsByTrip.containsKey(tripId)) {
-                gpsByTrip.put(tripId, new ArrayList<>());
-            }
-            gpsByTrip.get(tripId).add(point);
+            if (!dateByTrip.containsKey(tripId)) dateByTrip.put(tripId, formatDate(recordedAt));
 
-            // Stocker la date du voyage (date du premier point)
-            if (!dateByTrip.containsKey(tripId)) {
-                dateByTrip.put(tripId, formatDate(recordedAt));
-            }
-            if (!nameByTrip.containsKey(tripId)) {
-                String name = (String) doc.get("trip_name");
-                if (name != null && !name.isEmpty()) {
-                    nameByTrip.put(tripId, name);
-                }
-            }
-        } catch (Exception e) {
-            // Ignorer les documents malformés
-        }
+            String name = (String) doc.get("trip_name");
+            if (!nameByTrip.containsKey(tripId) && name != null && !name.isEmpty())
+                nameByTrip.put(tripId, name);
+        } catch (Exception ignored) {}
     }
 
-    /**
-     * Parse un document POI de MongoDB.
-     */
     @SuppressWarnings("unchecked")
     private void parsePoiDoc(Map<String, Object> doc) {
         try {
             String tripId = (String) doc.get("trip_id");
             if (tripId == null) tripId = "trip_unknown";
 
-            String name = (String) doc.get("name");
-            String type = (String) doc.get("type");
-            int rating = ((Number) doc.get("rating")).intValue();
+            String name    = (String) doc.get("name");
+            String type    = (String) doc.get("type");
+            int    rating  = ((Number) doc.get("rating")).intValue();
             String comment = (String) doc.get("comment");
 
-            Map<String, Object> location = (Map<String, Object>) doc.get("location");
-            double lat = ((Number) location.get("latitude")).doubleValue();
-            double lng = ((Number) location.get("longitude")).doubleValue();
+            Map<String, Object> loc = (Map<String, Object>) doc.get("location");
+            double lat = ((Number) loc.get("latitude")).doubleValue();
+            double lng = ((Number) loc.get("longitude")).doubleValue();
 
-            Poi poi = new Poi(name, type, lat, lng, rating, comment, "");
+            if (!poisByTrip.containsKey(tripId)) poisByTrip.put(tripId, new ArrayList<>());
+            poisByTrip.get(tripId).add(new Poi(name, type, lat, lng, rating, comment, ""));
 
-            if (!poisByTrip.containsKey(tripId)) {
-                poisByTrip.put(tripId, new ArrayList<>());
-            }
-            poisByTrip.get(tripId).add(poi);
+            String tripName = (String) doc.get("trip_name");
+            if (!nameByTrip.containsKey(tripId) && tripName != null && !tripName.isEmpty())
+                nameByTrip.put(tripId, tripName);
 
-            if (!nameByTrip.containsKey(tripId)) {
-                String tripNameFromDoc = (String) doc.get("trip_name");
-                if (tripNameFromDoc != null && !tripNameFromDoc.isEmpty()) {
-                    nameByTrip.put(tripId, tripNameFromDoc);
-                }
-            }
-        } catch (Exception e) {
-            // Ignorer les documents malformés
-        }
+            String recordedAt = (String) doc.get("recorded_at");
+            if (!poiDateByTrip.containsKey(tripId) && recordedAt != null)
+                poiDateByTrip.put(tripId, formatDate(recordedAt));
+        } catch (Exception ignored) {}
     }
 
-    /**
-     * Appelé après chaque chargement (GPS ou POI).
-     * Quand les 2 sont terminés, on construit la liste finale.
-     */
     private void onLoadingComplete() {
         loadingsRemaining--;
-        if (loadingsRemaining <= 0) {
-            buildTripsList();
-        }
+        if (loadingsRemaining <= 0) buildTripsList();
     }
 
-    /**
-     * Construit la liste finale de Trip à partir des maps groupées.
-     */
     private void buildTripsList() {
-        progressBar.setVisibility(android.view.View.GONE);
-        voyages.clear();
+        runOnUiThread(() -> {
+            progressBar.setVisibility(View.GONE);
+            voyages.clear();
 
-        // Tous les trip_ids (GPS + POI)
-        java.util.Set<String> allTripIds = new java.util.HashSet<>();
-        allTripIds.addAll(gpsByTrip.keySet());
-        allTripIds.addAll(poisByTrip.keySet());
+            Set<String> allIds = new HashSet<>();
+            allIds.addAll(gpsByTrip.keySet());
+            allIds.addAll(poisByTrip.keySet());
 
-        for (String tripId : allTripIds) {
-            List<GpsPoint> points = gpsByTrip.getOrDefault(tripId, new ArrayList<>());
-            List<Poi> pois = poisByTrip.getOrDefault(tripId, new ArrayList<>());
-            String date = dateByTrip.getOrDefault(tripId, "Date inconnue");
+            for (String tripId : allIds) {
+                List<GpsPoint> points = gpsByTrip.containsKey(tripId)
+                        ? gpsByTrip.get(tripId) : new ArrayList<>();
+                List<Poi> pois = poisByTrip.containsKey(tripId)
+                        ? poisByTrip.get(tripId) : new ArrayList<>();
 
-            // Nom du voyage : "Voyage du JJ/MM/AAAA"
-            String name = nameByTrip.getOrDefault(tripId, "Voyage du " + date);
+                if (points.isEmpty() && pois.isEmpty()) continue;
 
-            Trip trip = new Trip(tripId, name, date, "Voyage cloud", false, points, pois);
-            voyages.add(trip);
-        }
+                String date = dateByTrip.containsKey(tripId)
+                        ? dateByTrip.get(tripId)
+                        : poiDateByTrip.getOrDefault(tripId, "Date inconnue");
 
-        // Tri : voyages les plus récents en premier
-        Collections.sort(voyages, (a, b) -> b.getDate().compareTo(a.getDate()));
+                String name = nameByTrip.containsKey(tripId)
+                        ? nameByTrip.get(tripId)
+                        : "Voyage du " + date;
 
-        if (voyages.isEmpty()) {
-            tvEmpty.setVisibility(android.view.View.VISIBLE);
-        } else {
-            tvEmpty.setVisibility(android.view.View.GONE);
-        }
+                voyages.add(new Trip(tripId, name, date, "Voyage cloud", false, points, pois));
+            }
 
-        adapter.notifyDataSetChanged();
+            Collections.sort(voyages, (a, b) -> b.getDate().compareTo(a.getDate()));
+            tvEmpty.setVisibility(voyages.isEmpty() ? View.VISIBLE : View.GONE);
+            adapter.notifyDataSetChanged();
+        });
     }
 
-    /**
-     * Convertit un timestamp ISO 8601 en long (secondes Unix).
-     */
     private long parseTimestamp(String iso) {
         try {
-            SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.FRANCE);
-            return sdf.parse(iso).getTime() / 1000;
-        } catch (Exception e) {
-            return System.currentTimeMillis() / 1000;
-        }
+            return new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.FRANCE)
+                    .parse(iso).getTime() / 1000;
+        } catch (Exception e) { return System.currentTimeMillis() / 1000; }
     }
 
-    /**
-     * Convertit un timestamp ISO en date lisible JJ/MM/AAAA.
-     */
     private String formatDate(String iso) {
         try {
-            SimpleDateFormat input = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.FRANCE);
-            SimpleDateFormat output = new SimpleDateFormat("dd/MM/yyyy", Locale.FRANCE);
-            Date date = input.parse(iso);
-            return output.format(date);
-        } catch (Exception e) {
-            return "Date inconnue";
-        }
+            Date d = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.FRANCE).parse(iso);
+            return new SimpleDateFormat("dd/MM/yyyy", Locale.FRANCE).format(d);
+        } catch (Exception e) { return "Date inconnue"; }
     }
 }
