@@ -1,24 +1,24 @@
 package com.example.smarttrip;
 
+import android.content.Context;
 import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
-import com.example.smarttrip.api.ApiClient;
 import android.graphics.drawable.BitmapDrawable;
 import android.os.Bundle;
+import android.preference.PreferenceManager;
 import android.view.MotionEvent;
-import android.widget.LinearLayout;
-import android.widget.TextView;
-import android.graphics.Bitmap;
-import android.graphics.BitmapFactory;
-import android.util.Base64;
 import android.view.View;
 import android.widget.HorizontalScrollView;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
+import android.widget.TextView;
 
 import androidx.appcompat.app.AppCompatActivity;
+
+import com.example.smarttrip.api.ApiClient;
 
 import org.osmdroid.config.Configuration;
 import org.osmdroid.tileprovider.tilesource.TileSourceFactory;
@@ -30,6 +30,7 @@ import org.osmdroid.views.overlay.Polyline;
 
 import java.io.File;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 /**
@@ -39,7 +40,8 @@ import java.util.List;
  * - Titre, date, description
  * - Statistiques (nb points GPS, nb POI, distance totale)
  * - Liste des POI avec note et commentaire
- * - Carte OSMDroid : tracé bleu GPS + marqueurs rouges POI
+ * - Carte OSMDroid : tracé violet GPS + marqueurs rouges POI
+ * - Photos en format paysage (carte postale)
  * - Statut batterie au moment de la consultation
  */
 public class TripDetailsActivity extends AppCompatActivity {
@@ -50,11 +52,15 @@ public class TripDetailsActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        // Configuration OSMDroid — à faire avant setContentView
+        // ── FIX BUG 1 : initialisation OSMDroid correcte ──────────────────────
+        // L'ordre est important : load() AVANT setUserAgentValue()
+        // Sans UserAgent, le serveur de tuiles OpenStreetMap bloque les requêtes → carte grise
+        Context ctx = getApplicationContext();
+        Configuration.getInstance().load(ctx, PreferenceManager.getDefaultSharedPreferences(ctx));
         Configuration.getInstance().setUserAgentValue(getPackageName());
-        // Stockage interne (pas besoin de WRITE_EXTERNAL_STORAGE)
         Configuration.getInstance().setOsmdroidBasePath(getFilesDir());
         Configuration.getInstance().setOsmdroidTileCache(new File(getCacheDir(), "osmdroid"));
+        // ──────────────────────────────────────────────────────────────────────
 
         setContentView(R.layout.activity_trip_details);
 
@@ -87,19 +93,17 @@ public class TripDetailsActivity extends AppCompatActivity {
             addPoiView(layoutPois, poi);
         }
 
-        // --- Marqueurs violets pour les photos souvenirs ---
-        loadPhotosForMap(trip);
-
         tvBattery.setText(BatteryHelper.getStatusMessage(this));
 
-        // --- Carte ---
+        // --- Carte + photos ---
         setupMap(trip);
+        loadPhotosForMap(trip);
         loadAndDisplayPhotos(trip);
     }
 
-    // -------------------------------------------------------------------------
+    // =========================================================================
     // Carte OSMDroid
-    // -------------------------------------------------------------------------
+    // =========================================================================
 
     private void setupMap(Trip trip) {
         mapView = findViewById(R.id.mapView);
@@ -126,7 +130,13 @@ public class TripDetailsActivity extends AppCompatActivity {
         List<GpsPoint> gpsPoints = trip.getGpsPoints();
         List<Poi> pois = trip.getPois();
 
-        // --- Tracé GPS (ligne bleue) ---
+        // ── FIX BUG 3 : trier les points GPS par timestamp avant de tracer ────
+        // Sans ce tri, les points arrivent dans l'ordre MongoDB (non garanti)
+        // → la polyline relie les points dans le désordre → tracé en X
+        Collections.sort(gpsPoints, (a, b) -> Long.compare(a.getTimestamp(), b.getTimestamp()));
+        // ──────────────────────────────────────────────────────────────────────
+
+        // --- Tracé GPS (ligne violette SmartTrip) ---
         if (gpsPoints.size() >= 2) {
             List<GeoPoint> routePoints = new ArrayList<>();
             for (GpsPoint p : gpsPoints) {
@@ -134,7 +144,7 @@ public class TripDetailsActivity extends AppCompatActivity {
             }
             Polyline polyline = new Polyline(mapView);
             polyline.setPoints(routePoints);
-            polyline.getOutlinePaint().setColor(0xFF1D4ED8); // bleu
+            polyline.getOutlinePaint().setColor(Color.parseColor("#6C63FF")); // violet SmartTrip
             polyline.getOutlinePaint().setStrokeWidth(8f);
             mapView.getOverlays().add(polyline);
         }
@@ -166,14 +176,12 @@ public class TripDetailsActivity extends AppCompatActivity {
         }
 
         if (allPoints.isEmpty()) {
-            // Aucun point : vue par défaut sur Paris
             mapView.getController().setZoom(10.0);
             mapView.getController().setCenter(new GeoPoint(48.8566, 2.3522));
         } else if (allPoints.size() == 1) {
-            mapView.getController().setZoom(15.0);
+            mapView.getController().setZoom(18.0);
             mapView.getController().setCenter(allPoints.get(0));
         } else {
-            // Centrer sur le premier point GPS, puis zoomer pour tout voir
             if (!gpsPoints.isEmpty()) {
                 mapView.getController().setCenter(
                         new GeoPoint(gpsPoints.get(0).getLat(), gpsPoints.get(0).getLng()));
@@ -183,30 +191,9 @@ public class TripDetailsActivity extends AppCompatActivity {
         }
     }
 
-    /**
-     * Crée un marqueur violet pour les photos souvenirs.
-     * Différent du rouge des POI pour les distinguer sur la carte.
-     */
-    private BitmapDrawable createPhotoMarkerIcon(Bitmap photo) {
-        float density = getResources().getDisplayMetrics().density;
-        int size = Math.round(56 * density);
-        int border = Math.round(4 * density);
-
-        Bitmap result = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888);
-        Canvas canvas = new Canvas(result);
-
-        // Bordure blanche
-        Paint paintBg = new Paint(Paint.ANTI_ALIAS_FLAG);
-        paintBg.setColor(Color.WHITE);
-        canvas.drawRoundRect(0, 0, size, size, 8 * density, 8 * density, paintBg);
-
-        // Photo dedans
-        Bitmap scaled = Bitmap.createScaledBitmap(photo,
-                size - border * 2, size - border * 2, true);
-        canvas.drawBitmap(scaled, border, border, null);
-
-        return new BitmapDrawable(getResources(), result);
-    }
+    // =========================================================================
+    // Marqueurs
+    // =========================================================================
 
     private BitmapDrawable createPoiMarker() {
         float d = getResources().getDisplayMetrics().density;
@@ -215,24 +202,39 @@ public class TripDetailsActivity extends AppCompatActivity {
         Canvas canvas = new Canvas(bmp);
         Paint fill = new Paint(Paint.ANTI_ALIAS_FLAG);
         fill.setColor(0xFFDC2626);
-        // Cercle du haut
-        canvas.drawCircle(size/2f, size/3f, size/3f, fill);
-        // Triangle du bas
+        canvas.drawCircle(size / 2f, size / 3f, size / 3f, fill);
         android.graphics.Path path = new android.graphics.Path();
-        path.moveTo(size/2f - size/4f, size/2f);
-        path.lineTo(size/2f + size/4f, size/2f);
-        path.lineTo(size/2f, size * 0.85f);
+        path.moveTo(size / 2f - size / 4f, size / 2f);
+        path.lineTo(size / 2f + size / 4f, size / 2f);
+        path.lineTo(size / 2f, size * 0.85f);
         path.close();
         canvas.drawPath(path, fill);
-        // Point blanc au centre
         Paint white = new Paint(Paint.ANTI_ALIAS_FLAG);
         white.setColor(Color.WHITE);
-        canvas.drawCircle(size/2f, size/3f, size/8f, white);
+        canvas.drawCircle(size / 2f, size / 3f, size / 8f, white);
         return new BitmapDrawable(getResources(), bmp);
     }
 
+    private BitmapDrawable createPhotoMarkerIcon(Bitmap photo) {
+        float density = getResources().getDisplayMetrics().density;
+        int size = Math.round(56 * density);
+        int border = Math.round(4 * density);
+        Bitmap result = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888);
+        Canvas canvas = new Canvas(result);
+        Paint paintBg = new Paint(Paint.ANTI_ALIAS_FLAG);
+        paintBg.setColor(Color.WHITE);
+        canvas.drawRoundRect(0, 0, size, size, 8 * density, 8 * density, paintBg);
+        Bitmap scaled = Bitmap.createScaledBitmap(photo, size - border * 2, size - border * 2, true);
+        canvas.drawBitmap(scaled, border, border, null);
+        return new BitmapDrawable(getResources(), result);
+    }
+
+    // =========================================================================
+    // Photos — cloud → galerie + marqueurs carte
+    // =========================================================================
+
     /**
-     * Charge les photos du voyage et les affiche comme marqueurs sur la carte.
+     * Charge les photos depuis le cloud et les ajoute comme marqueurs sur la carte.
      */
     private void loadPhotosForMap(Trip trip) {
         ApiClient.getInstance().getApiService().getUserPhotos("amin")
@@ -240,68 +242,63 @@ public class TripDetailsActivity extends AppCompatActivity {
                     @Override
                     public void onResponse(retrofit2.Call<java.util.List<java.util.Map<String, Object>>> call,
                                            retrofit2.Response<java.util.List<java.util.Map<String, Object>>> response) {
-                        if (response.isSuccessful() && response.body() != null) {
-                            for (java.util.Map<String, Object> doc : response.body()) {
-                                String docTripId = (String) doc.get("trip_id");
-                                if (!trip.getId().equals(docTripId)) continue;
-                                try {
-                                    java.util.Map<String, Object> location =
-                                            (java.util.Map<String, Object>) doc.get("location");
-                                    if (location == null) continue;
-                                    double lat = ((Number) location.get("latitude")).doubleValue();
-                                    double lng = ((Number) location.get("longitude")).doubleValue();
-                                    String base64 = (String) doc.get("photo_base64");
-                                    String recordedAt = (String) doc.get("recorded_at");
+                        if (response.isSuccessful() && response.body() == null) return;
+                        if (!response.isSuccessful()) return;
+                        for (java.util.Map<String, Object> doc : response.body()) {
+                            String docTripId = (String) doc.get("trip_id");
+                            if (!trip.getId().equals(docTripId)) continue;
+                            try {
+                                java.util.Map<String, Object> location =
+                                        (java.util.Map<String, Object>) doc.get("location");
+                                if (location == null) continue;
+                                double lat = ((Number) location.get("latitude")).doubleValue();
+                                double lng = ((Number) location.get("longitude")).doubleValue();
+                                String base64 = (String) doc.get("photo_base64");
+                                String recordedAt = (String) doc.get("recorded_at");
 
-                                    runOnUiThread(() -> {
-                                        Marker marker = new Marker(mapView);
-                                        marker.setPosition(new GeoPoint(lat, lng));
-                                        marker.setTitle("📸 Photo souvenir");
-                                        marker.setSnippet(recordedAt != null ? recordedAt : "");
-                                        marker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER);
+                                runOnUiThread(() -> {
+                                    Marker marker = new Marker(mapView);
+                                    marker.setPosition(new GeoPoint(lat, lng));
+                                    marker.setTitle("📸 Photo souvenir");
+                                    marker.setSnippet(recordedAt != null ? recordedAt : "");
+                                    marker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER);
 
-                                        // Icône = vraie miniature de la photo
-                                        if (base64 != null) {
-                                            try {
-                                                byte[] bytes = android.util.Base64.decode(
-                                                        base64, android.util.Base64.DEFAULT);
-                                                Bitmap bmp = BitmapFactory.decodeByteArray(
-                                                        bytes, 0, bytes.length);
-                                                marker.setIcon(createPhotoMarkerIcon(bmp));
-                                            } catch (Exception e) {
-                                                marker.setIcon(createPoiMarker());
-                                            }
-                                        } else {
+                                    if (base64 != null) {
+                                        try {
+                                            byte[] bytes = android.util.Base64.decode(base64, android.util.Base64.DEFAULT);
+                                            Bitmap bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
+                                            marker.setIcon(createPhotoMarkerIcon(bmp));
+                                        } catch (Exception e) {
                                             marker.setIcon(createPoiMarker());
                                         }
+                                    } else {
+                                        marker.setIcon(createPoiMarker());
+                                    }
 
-                                        // Clic → affiche la photo en grand
-                                        marker.setOnMarkerClickListener((m, map) -> {
-                                            if (base64 != null) {
-                                                byte[] bytes = android.util.Base64.decode(
-                                                        base64, android.util.Base64.DEFAULT);
-                                                Bitmap bmp = BitmapFactory.decodeByteArray(
-                                                        bytes, 0, bytes.length);
+                                    marker.setOnMarkerClickListener((m, map) -> {
+                                        if (base64 != null) {
+                                            try {
+                                                byte[] bytes = android.util.Base64.decode(base64, android.util.Base64.DEFAULT);
+                                                Bitmap bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
                                                 showFullPhoto(bmp);
-                                            }
-                                            return true;
-                                        });
-
-                                        mapView.getOverlays().add(marker);
-                                        mapView.invalidate();
+                                            } catch (Exception ignored) {}
+                                        }
+                                        return true;
                                     });
-                                } catch (Exception e) { /* ignorer */ }
-                            }
+
+                                    mapView.getOverlays().add(marker);
+                                    mapView.invalidate();
+                                });
+                            } catch (Exception ignored) {}
                         }
                     }
                     @Override
-                    public void onFailure(retrofit2.Call<java.util.List<java.util.Map<String, Object>>> call,
-                                          Throwable t) {}
+                    public void onFailure(retrofit2.Call<java.util.List<java.util.Map<String, Object>>> call, Throwable t) {}
                 });
     }
 
     /**
-     * Charge les photos du voyage depuis le cloud et les affiche.
+     * Charge les photos depuis le cloud et les affiche dans la galerie horizontale.
      */
     private void loadAndDisplayPhotos(Trip trip) {
         ApiClient.getInstance().getApiService().getUserPhotos("amin")
@@ -309,62 +306,72 @@ public class TripDetailsActivity extends AppCompatActivity {
                     @Override
                     public void onResponse(retrofit2.Call<java.util.List<java.util.Map<String, Object>>> call,
                                            retrofit2.Response<java.util.List<java.util.Map<String, Object>>> response) {
-                        if (response.isSuccessful() && response.body() != null) {
-                            // Filtrer par trip_id
-                            for (java.util.Map<String, Object> doc : response.body()) {
-                                String docTripId = (String) doc.get("trip_id");
-                                if (trip.getId().equals(docTripId)) {
-                                    String base64 = (String) doc.get("photo_base64");
-                                    if (base64 != null) {
-                                        runOnUiThread(() -> addPhotoToGallery(base64));
-                                    }
+                        if (!response.isSuccessful() || response.body() == null) return;
+                        for (java.util.Map<String, Object> doc : response.body()) {
+                            String docTripId = (String) doc.get("trip_id");
+                            if (trip.getId().equals(docTripId)) {
+                                String base64 = (String) doc.get("photo_base64");
+                                if (base64 != null) {
+                                    runOnUiThread(() -> addPhotoToGallery(base64));
                                 }
                             }
                         }
                     }
                     @Override
-                    public void onFailure(retrofit2.Call<java.util.List<java.util.Map<String, Object>>> call,
-                                          Throwable t) {
-                        // Photos non disponibles, pas bloquant
-                    }
+                    public void onFailure(retrofit2.Call<java.util.List<java.util.Map<String, Object>>> call, Throwable t) {}
                 });
     }
 
     /**
-     * Ajoute une photo en miniature dans la galerie horizontale.
+     * Ajoute une photo en format PAYSAGE (carte postale) dans la galerie horizontale.
+     *
+     * ── FIX UX : FORMAT PAYSAGE ───────────────────────────────────────────────
+     * Largeur 200dp × hauteur 130dp + scaleType CENTER_CROP
+     * → recadrage automatique quelle que soit l'orientation d'origine de la photo
+     * ──────────────────────────────────────────────────────────────────────────
      */
     private void addPhotoToGallery(String base64) {
-        LinearLayout galleryLayout = (LinearLayout) findViewById(R.id.layoutPhotoGallery);
+        LinearLayout galleryLayout = findViewById(R.id.layoutPhotoGallery);
         if (galleryLayout == null) return;
 
         try {
             byte[] decodedBytes = android.util.Base64.decode(base64, android.util.Base64.DEFAULT);
-            android.graphics.Bitmap bitmap = android.graphics.BitmapFactory.decodeByteArray(
-                    decodedBytes, 0, decodedBytes.length);
+            Bitmap bitmap = BitmapFactory.decodeByteArray(decodedBytes, 0, decodedBytes.length);
+
+            float density = getResources().getDisplayMetrics().density;
+            int width  = Math.round(200 * density); // paysage : plus large
+            int height = Math.round(130 * density); // que haut
 
             ImageView imgView = new ImageView(this);
-            int size = (int) (120 * getResources().getDisplayMetrics().density);
-            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(size, size);
-            params.setMargins(0, 0, 16, 0);
+            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(width, height);
+            params.setMargins(0, 0, Math.round(12 * density), 0);
             imgView.setLayoutParams(params);
-            imgView.setScaleType(ImageView.ScaleType.CENTER_CROP);
+            imgView.setScaleType(ImageView.ScaleType.CENTER_CROP); // clé du format paysage
             imgView.setImageBitmap(bitmap);
+
+            // Coins légèrement arrondis via background
+            imgView.setClipToOutline(true);
+            imgView.setOutlineProvider(new android.view.ViewOutlineProvider() {
+                @Override
+                public void getOutline(View view, android.graphics.Outline outline) {
+                    outline.setRoundRect(0, 0, view.getWidth(), view.getHeight(),
+                            8 * density);
+                }
+            });
+
             imgView.setOnClickListener(v -> showFullPhoto(bitmap));
             galleryLayout.addView(imgView);
 
-            // Rendre visible le conteneur
             HorizontalScrollView scrollView = findViewById(R.id.scrollPhotoGallery);
             if (scrollView != null) scrollView.setVisibility(View.VISIBLE);
 
-        } catch (Exception e) {
-            // Image corrompue, ignorer
-        }
+        } catch (Exception ignored) {}
     }
 
     /**
-     * Affiche une photo en plein écran.
+     * Affiche une photo en plein écran dans un Dialog.
      */
-    private void showFullPhoto(android.graphics.Bitmap bitmap) {
+    private void showFullPhoto(Bitmap bitmap) {
         ImageView fullImg = new ImageView(this);
         fullImg.setImageBitmap(bitmap);
         fullImg.setScaleType(ImageView.ScaleType.FIT_CENTER);
@@ -376,27 +383,9 @@ public class TripDetailsActivity extends AppCompatActivity {
                 .show();
     }
 
-    /**
-     * Crée un marqueur circulaire rouge de 32 dp (sans ressource externe).
-     */
-    private BitmapDrawable createRedMarker() {
-        float density = getResources().getDisplayMetrics().density;
-        int size = Math.round(32 * density);
-        Bitmap bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888);
-        Canvas canvas = new Canvas(bitmap);
-
-        Paint fill = new Paint(Paint.ANTI_ALIAS_FLAG);
-        fill.setColor(0xFFDC2626); // rouge-600
-        canvas.drawCircle(size / 2f, size / 2f, size / 2f, fill);
-
-        Paint border = new Paint(Paint.ANTI_ALIAS_FLAG);
-        border.setColor(Color.WHITE);
-        border.setStyle(Paint.Style.STROKE);
-        border.setStrokeWidth(size / 6f);
-        canvas.drawCircle(size / 2f, size / 2f, size / 2f - size / 12f, border);
-
-        return new BitmapDrawable(getResources(), bitmap);
-    }
+    // =========================================================================
+    // Lifecycle OSMDroid
+    // =========================================================================
 
     @Override
     protected void onResume() {
@@ -410,17 +399,18 @@ public class TripDetailsActivity extends AppCompatActivity {
         if (mapView != null) mapView.onPause();
     }
 
-    // -------------------------------------------------------------------------
+    // =========================================================================
     // Calculs et vues dynamiques
-    // -------------------------------------------------------------------------
+    // =========================================================================
 
     /**
      * Distance totale du parcours GPS en mètres (formule Haversine).
      */
     private double calculateTotalDistance(Trip trip) {
         double total = 0;
-        for (int i = 1; i < trip.getGpsPoints().size(); i++) {
-            total += trip.getGpsPoints().get(i - 1).distanceTo(trip.getGpsPoints().get(i));
+        List<GpsPoint> pts = trip.getGpsPoints();
+        for (int i = 1; i < pts.size(); i++) {
+            total += pts.get(i - 1).distanceTo(pts.get(i));
         }
         return total;
     }
@@ -451,7 +441,7 @@ public class TripDetailsActivity extends AppCompatActivity {
         TextView tvRating = new TextView(this);
         tvRating.setText(poi.getRatingStars());
         tvRating.setTextSize(14);
-        tvRating.setTextColor(0xFFD97706); // amber
+        tvRating.setTextColor(0xFFD97706);
         tvRating.setPadding(0, 8, 0, 4);
         card.addView(tvRating);
 

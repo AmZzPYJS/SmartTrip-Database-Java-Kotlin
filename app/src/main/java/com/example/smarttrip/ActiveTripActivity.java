@@ -68,6 +68,10 @@ public class ActiveTripActivity extends AppCompatActivity {
     private LocationListener locationListener;
     private Location lastKnownLocation;
 
+    // ── FIX GPS : on garde la meilleure localisation reçue tous providers confondus
+    // pour ne jamais rester bloqué sur une coordonnée figée en intérieur
+    private Location bestLocation = null;
+
     private final List<GpsPoint> collectedPoints   = new ArrayList<>();
     private final List<Poi>      collectedPois      = new ArrayList<>();
     private final List<String>   memoryPhotosBase64 = new ArrayList<>();
@@ -147,8 +151,19 @@ public class ActiveTripActivity extends AppCompatActivity {
             public void onLocationChanged(Location location) {
                 if (!isCollecting) return;
 
-                // Filtrer les points peu précis
-                if (location.hasAccuracy() && location.getAccuracy() > 15f) return;
+                // ── FIX BUG GPS ────────────────────────────────────────────────────────
+                // AVANT : filtre accuracy > 15f → rejette TOUT en intérieur (réseau = 50-200m)
+                // APRÈS : on accepte tous les points mais on étiquette la qualité pour l'UI
+                //
+                // Règle : on garde le point si c'est mieux que ce qu'on avait OU si
+                // aucune position n'a encore été reçue depuis > 10 secondes.
+                // En extérieur  : GPS satellite, accuracy 3-10m   → points précis
+                // En intérieur  : réseau/Wi-Fi, accuracy 20-200m  → points acceptés
+                //                 mais on affiche l'avertissement pour l'oral
+                boolean isBetter = isBetterLocation(location, bestLocation);
+                if (!isBetter) return; // ignorer seulement si vraiment moins bon
+                bestLocation = location;
+                // ──────────────────────────────────────────────────────────────────────
 
                 if (!BatteryHelper.shouldCollectData(ActiveTripActivity.this)) {
                     isCollecting = false;
@@ -164,8 +179,17 @@ public class ActiveTripActivity extends AppCompatActivity {
                         location.getAltitude(), location.getAccuracy());
                 collectedPoints.add(point);
 
+                // ── Affichage de la qualité GPS pour que l'utilisateur sache ──────────
+                String accuracyLabel;
+                float acc = location.getAccuracy();
+                String provider = location.getProvider() != null ? location.getProvider() : "?";
+                if (acc <= 10f)       accuracyLabel = "● GPS précis (" + Math.round(acc) + "m)";
+                else if (acc <= 50f)  accuracyLabel = "◐ GPS moyen (" + Math.round(acc) + "m)";
+                else                  accuracyLabel = "○ Réseau/Wi-Fi (" + Math.round(acc) + "m)";
+                // ──────────────────────────────────────────────────────────────────────
+
                 runOnUiThread(() -> {
-                    tvGpsCount.setText(collectedPoints.size() + " points GPS");
+                    tvGpsCount.setText(collectedPoints.size() + " points GPS  " + accuracyLabel);
                     tvBatteryLive.setText(BatteryHelper.getStatusMessage(ActiveTripActivity.this));
                 });
 
@@ -180,15 +204,47 @@ public class ActiveTripActivity extends AppCompatActivity {
             }
         };
 
-        // GPS précis
+        // GPS satellite — précis, mais lent à démarrer et mort en intérieur
         locationManager.requestLocationUpdates(
                 LocationManager.GPS_PROVIDER, 5000, 5f, locationListener);
 
-        // Réseau pour position rapide en attendant le GPS
+        // Réseau/Wi-Fi — moins précis, mais fonctionne en intérieur
+        // interval 0 / minDistance 0 = aussi fréquent que possible (fallback)
         if (locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
             locationManager.requestLocationUpdates(
                     LocationManager.NETWORK_PROVIDER, 0, 0, locationListener);
         }
+    }
+
+    /**
+     * Détermine si une nouvelle localisation est meilleure que l'ancienne.
+     *
+     * Logique Android standard (simplifiée) :
+     * - Si la nouvelle est significativement plus précise → oui
+     * - Si l'ancienne a plus de 10s → on accepte quand même la nouvelle
+     * - Si même provider et plus récente → oui
+     *
+     * Référence : https://developer.android.com/guide/topics/location/strategies
+     */
+    private boolean isBetterLocation(Location location, Location currentBest) {
+        if (currentBest == null) return true; // première position, on prend tout
+
+        long timeDelta = location.getTime() - currentBest.getTime();
+        boolean isSignificantlyNewer = timeDelta > 10_000; // 10 secondes
+        boolean isSignificantlyOlder = timeDelta < -10_000;
+        boolean isNewer = timeDelta > 0;
+
+        if (isSignificantlyNewer) return true;
+        if (isSignificantlyOlder) return false;
+
+        int accuracyDelta = (int) (location.getAccuracy() - currentBest.getAccuracy());
+        boolean isMoreAccurate    = accuracyDelta < 0;
+        boolean isSignificantlyLessAccurate = accuracyDelta > 200; // 200m de moins
+
+        if (isMoreAccurate) return true;
+        if (isNewer && !isSignificantlyLessAccurate) return true;
+
+        return false;
     }
 
     @Override
