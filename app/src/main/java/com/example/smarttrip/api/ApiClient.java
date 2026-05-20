@@ -7,7 +7,7 @@ import retrofit2.converter.gson.GsonConverterFactory;
 
 public class ApiClient {
 
-    private static final String BASE_URL = "https://travel-tracker-backend-j5q0/onrende.com/";
+    private static final String BASE_URL = "https://travel-tracker-backend-j5q0.onrender.com/";
     private static ApiClient instance;
     private ApiService apiService;
 
