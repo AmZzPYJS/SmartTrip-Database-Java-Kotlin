@@ -148,7 +148,7 @@ public class TripDetailsActivity extends AppCompatActivity {
                     + (poi.getComment() != null && !poi.getComment().isEmpty()
                     ? "\n" + poi.getComment() : ""));
             marker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM);
-            marker.setIcon(createLabeledMarker("P", 0xFFDC2626));
+            marker.setIcon(createPoiMarker());
             marker.setOnMarkerClickListener((m, map) -> {
                 m.showInfoWindow();
                 return true;
@@ -208,24 +208,27 @@ public class TripDetailsActivity extends AppCompatActivity {
         return new BitmapDrawable(getResources(), result);
     }
 
-    private BitmapDrawable createLabeledMarker(String label, int color) {
-        float density = getResources().getDisplayMetrics().density;
-        int size = Math.round(40 * density);
-        Bitmap bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888);
-        Canvas canvas = new Canvas(bitmap);
-
+    private BitmapDrawable createPoiMarker() {
+        float d = getResources().getDisplayMetrics().density;
+        int size = Math.round(44 * d);
+        Bitmap bmp = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888);
+        Canvas canvas = new Canvas(bmp);
         Paint fill = new Paint(Paint.ANTI_ALIAS_FLAG);
-        fill.setColor(color);
-        canvas.drawCircle(size / 2f, size / 2f, size / 2f, fill);
-
-        Paint text = new Paint(Paint.ANTI_ALIAS_FLAG);
-        text.setColor(Color.WHITE);
-        text.setTextSize(16 * density);
-        text.setTextAlign(Paint.Align.CENTER);
-        text.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-        canvas.drawText(label, size / 2f, size / 2f + 6 * density, text);
-
-        return new BitmapDrawable(getResources(), bitmap);
+        fill.setColor(0xFFDC2626);
+        // Cercle du haut
+        canvas.drawCircle(size/2f, size/3f, size/3f, fill);
+        // Triangle du bas
+        android.graphics.Path path = new android.graphics.Path();
+        path.moveTo(size/2f - size/4f, size/2f);
+        path.lineTo(size/2f + size/4f, size/2f);
+        path.lineTo(size/2f, size * 0.85f);
+        path.close();
+        canvas.drawPath(path, fill);
+        // Point blanc au centre
+        Paint white = new Paint(Paint.ANTI_ALIAS_FLAG);
+        white.setColor(Color.WHITE);
+        canvas.drawCircle(size/2f, size/3f, size/8f, white);
+        return new BitmapDrawable(getResources(), bmp);
     }
 
     /**
@@ -266,10 +269,10 @@ public class TripDetailsActivity extends AppCompatActivity {
                                                         bytes, 0, bytes.length);
                                                 marker.setIcon(createPhotoMarkerIcon(bmp));
                                             } catch (Exception e) {
-                                                marker.setIcon(createLabeledMarker("📸", 0xFF6C3AED));
+                                                marker.setIcon(createPoiMarker());
                                             }
                                         } else {
-                                            marker.setIcon(createLabeledMarker("📸", 0xFF6C3AED));
+                                            marker.setIcon(createPoiMarker());
                                         }
 
                                         // Clic → affiche la photo en grand

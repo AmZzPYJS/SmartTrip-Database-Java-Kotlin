@@ -271,7 +271,7 @@ public class TripsActivity extends AppCompatActivity implements TripAdapter.OnTr
                 voyages.add(new Trip(tripId, name, date, "Voyage cloud", false, points, pois));
             }
 
-            Collections.sort(voyages, (a, b) -> b.getDate().compareTo(a.getDate()));
+            Collections.sort(voyages, (a, b) -> b.getId().compareTo(a.getId()));
             tvEmpty.setVisibility(voyages.isEmpty() ? View.VISIBLE : View.GONE);
             adapter.notifyDataSetChanged();
         });
