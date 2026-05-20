@@ -2,9 +2,8 @@ package com.example.smarttrip;
 
 import android.content.Intent;
 import android.os.Bundle;
-import android.widget.Button;
+import android.widget.LinearLayout;
 import android.widget.TextView;
-import android.widget.Toast;
 import androidx.appcompat.app.AppCompatActivity;
 import com.example.smarttrip.api.ApiClient;
 import java.util.HashSet;
@@ -22,11 +21,14 @@ public class MainActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
-        Button btnStartTrip = findViewById(R.id.btnStartTrip);
-        Button btnViewTrips = findViewById(R.id.btnViewTrips);
-        Button btnSettings  = findViewById(R.id.btnSettings);
-        tvBatteryStatus     = findViewById(R.id.tvBatteryStatus);
-        tvStatsCloud        = findViewById(R.id.tvStatsCloud);
+        // ── FIX CRASH : les boutons sont des LinearLayout dans le nouveau XML ──
+        LinearLayout btnStartTrip = findViewById(R.id.btnStartTrip);
+        LinearLayout btnViewTrips = findViewById(R.id.btnViewTrips);
+        LinearLayout btnSettings  = findViewById(R.id.btnSettings);
+        // ───────────────────────────────────────────────────────────────────────
+
+        tvBatteryStatus = findViewById(R.id.tvBatteryStatus);
+        tvStatsCloud    = findViewById(R.id.tvStatsCloud);
 
         btnStartTrip.setOnClickListener(v -> showNameTripDialog());
 

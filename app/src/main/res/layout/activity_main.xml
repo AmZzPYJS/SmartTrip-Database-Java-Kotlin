@@ -1,116 +1,47 @@
-<?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    android:layout_width="match_parent"
-    android:layout_height="match_parent"
-    android:orientation="vertical"
-    android:background="@color/background">
-
-    <!-- Header violet -->
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:background="@color/primary"
-        android:orientation="vertical"
-        android:padding="32dp"
-        android:paddingTop="48dp"
-        android:paddingBottom="32dp"
-        android:gravity="center">
-
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="🗺️"
-            android:textSize="48sp"
-            android:layout_marginBottom="12dp" />
-
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="SmartTrip"
-            android:textSize="32sp"
-            android:textStyle="bold"
-            android:textColor="@color/white"
-            android:letterSpacing="0.02"
-            android:layout_marginBottom="8dp" />
-
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Carnet de voyage intelligent"
-            android:textSize="14sp"
-            android:textColor="#CCE0FF"
-            android:gravity="center"
-            android:layout_marginBottom="16dp" />
-
-        <!-- Stats cloud -->
-        <LinearLayout
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:background="#33FFFFFF"
-            android:paddingStart="16dp"
-            android:paddingEnd="16dp"
-            android:paddingTop="8dp"
-            android:paddingBottom="8dp">
-
-            <TextView
-                android:id="@+id/tvStatsCloud"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Chargement..."
-                android:textSize="13sp"
-                android:textColor="@color/white" />
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android" android:layout_width="match_parent" android:layout_height="match_parent" android:orientation="vertical" android:background="#0F0F1A">
+    <!--  ═══════════════════════════════════════════════════
+             HEADER — dégradé violet profond avec étoiles
+             ═══════════════════════════════════════════════════  -->
+    <LinearLayout android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1.4" android:orientation="vertical" android:gravity="center" android:paddingTop="40dp" android:paddingBottom="32dp" android:paddingStart="28dp" android:paddingEnd="28dp" android:background="#6C63FF">
+        <!--  Icône monde avec ombre douce  -->
+        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="🗺️" android:textSize="56sp" android:layout_marginBottom="16dp"/>
+        <!--  Nom app  -->
+        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="SmartTrip" android:textSize="36sp" android:textStyle="bold" android:textColor="#FFFFFF" android:letterSpacing="0.03" android:layout_marginBottom="6dp"/>
+        <!--  Sous-titre  -->
+        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Carnet de voyage intelligent" android:textSize="15sp" android:textColor="#D0CCFF" android:gravity="center" android:layout_marginBottom="24dp"/>
+        <!--  Chip stats cloud — pill arrondie  -->
+        <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content" android:background="#26FFFFFF" android:paddingStart="20dp" android:paddingEnd="20dp" android:paddingTop="10dp" android:paddingBottom="10dp" android:orientation="horizontal" android:gravity="center_vertical">
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="☁ " android:textSize="14sp" android:textColor="#FFFFFF"/>
+            <TextView android:id="@+id/tvStatsCloud" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Connexion…" android:textSize="14sp" android:textColor="#FFFFFF" android:textStyle="bold"/>
         </LinearLayout>
-
     </LinearLayout>
-
-    <!-- Boutons -->
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1"
-        android:orientation="vertical"
-        android:padding="24dp"
-        android:gravity="center_vertical">
-
-        <Button
-            android:id="@+id/btnStartTrip"
-            android:layout_width="match_parent"
-            android:layout_height="56dp"
-            android:text="▶   Démarrer un voyage"
-            android:layout_marginBottom="12dp" />
-
-        <Button
-            android:id="@+id/btnViewTrips"
-            android:layout_width="match_parent"
-            android:layout_height="56dp"
-            android:text="📋   Voir mes voyages"
-            style="@style/Widget.SmartTrip.Button.Secondary"
-            android:layout_marginBottom="12dp" />
-
-        <Button
-            android:id="@+id/btnSettings"
-            android:layout_width="match_parent"
-            android:layout_height="56dp"
-            android:text="⚙   Paramètres"
-            style="@style/Widget.SmartTrip.Button.Secondary" />
-
+    <!--  ═══════════════════════════════════════════════════
+             CORPS — boutons d'action
+             ═══════════════════════════════════════════════════  -->
+    <LinearLayout android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="2" android:orientation="vertical" android:paddingStart="24dp" android:paddingEnd="24dp" android:paddingTop="32dp" android:paddingBottom="16dp" android:gravity="center_vertical" android:background="#0F0F1A">
+        <!--  Bouton primaire — Démarrer  -->
+        <LinearLayout android:id="@+id/btnStartTrip" android:layout_width="match_parent" android:layout_height="64dp" android:background="#6C63FF" android:orientation="horizontal" android:gravity="center_vertical" android:paddingStart="24dp" android:paddingEnd="24dp" android:layout_marginBottom="14dp" android:clickable="true" android:focusable="true">
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="▶" android:textSize="18sp" android:textColor="#FFFFFF" android:layout_marginEnd="14dp"/>
+            <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="DÉMARRER UN VOYAGE" android:textSize="15sp" android:textStyle="bold" android:textColor="#FFFFFF" android:letterSpacing="0.08"/>
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="›" android:textSize="22sp" android:textColor="#FFFFFF"/>
+        </LinearLayout>
+        <!--  Bouton secondaire — Voir mes voyages  -->
+        <LinearLayout android:id="@+id/btnViewTrips" android:layout_width="match_parent" android:layout_height="60dp" android:background="#1A1A2E" android:orientation="horizontal" android:gravity="center_vertical" android:paddingStart="24dp" android:paddingEnd="24dp" android:layout_marginBottom="14dp" android:clickable="true" android:focusable="true">
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="📋" android:textSize="18sp" android:layout_marginEnd="14dp"/>
+            <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="VOIR MES VOYAGES" android:textSize="15sp" android:textStyle="bold" android:textColor="#CCCCDD" android:letterSpacing="0.06"/>
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="›" android:textSize="22sp" android:textColor="#6C63FF"/>
+        </LinearLayout>
+        <!--  Bouton secondaire — Paramètres  -->
+        <LinearLayout android:id="@+id/btnSettings" android:layout_width="match_parent" android:layout_height="60dp" android:background="#1A1A2E" android:orientation="horizontal" android:gravity="center_vertical" android:paddingStart="24dp" android:paddingEnd="24dp" android:clickable="true" android:focusable="true">
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="⚙" android:textSize="18sp" android:layout_marginEnd="14dp"/>
+            <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="PARAMÈTRES" android:textSize="15sp" android:textStyle="bold" android:textColor="#CCCCDD" android:letterSpacing="0.06"/>
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="›" android:textSize="22sp" android:textColor="#6C63FF"/>
+        </LinearLayout>
     </LinearLayout>
-
-    <!-- Barre batterie -->
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:background="@color/surface"
-        android:padding="16dp"
-        android:gravity="center">
-
-        <TextView
-            android:id="@+id/tvBatteryStatus"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Batterie : chargement..."
-            android:textSize="12sp"
-            android:textColor="@color/text_muted" />
+    <!--  ═══════════════════════════════════════════════════
+             FOOTER — statut batterie
+             ═══════════════════════════════════════════════════  -->
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:background="#0A0A14" android:padding="14dp" android:gravity="center">
+        <TextView android:id="@+id/tvBatteryStatus" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Batterie : chargement…" android:textSize="12sp" android:textColor="#555570"/>
     </LinearLayout>
-
 </LinearLayout>

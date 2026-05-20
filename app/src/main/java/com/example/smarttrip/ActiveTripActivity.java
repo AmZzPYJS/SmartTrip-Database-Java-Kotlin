@@ -67,10 +67,16 @@ public class ActiveTripActivity extends AppCompatActivity {
     private LocationManager locationManager;
     private LocationListener locationListener;
     private Location lastKnownLocation;
-
-    // ── FIX GPS : on garde la meilleure localisation reçue tous providers confondus
-    // pour ne jamais rester bloqué sur une coordonnée figée en intérieur
     private Location bestLocation = null;
+
+    // ── FIX GPS SPAGHETTI ─────────────────────────────────────────────────────
+    // On garde le dernier point ACCEPTÉ pour calculer la distance avec le suivant.
+    // Un point est rejeté s'il est à plus de MAX_JUMP_METERS du précédent,
+    // ce qui élimine les sauts dus au réseau en intérieur.
+    // En extérieur (GPS précis) les points sont proches → jamais rejetés.
+    private GpsPoint lastAcceptedPoint = null;
+    private static final float MAX_JUMP_METERS = 50f; // saut max acceptable entre 2 points
+    // ──────────────────────────────────────────────────────────────────────────
 
     private final List<GpsPoint> collectedPoints   = new ArrayList<>();
     private final List<Poi>      collectedPois      = new ArrayList<>();
@@ -151,19 +157,9 @@ public class ActiveTripActivity extends AppCompatActivity {
             public void onLocationChanged(Location location) {
                 if (!isCollecting) return;
 
-                // ── FIX BUG GPS ────────────────────────────────────────────────────────
-                // AVANT : filtre accuracy > 15f → rejette TOUT en intérieur (réseau = 50-200m)
-                // APRÈS : on accepte tous les points mais on étiquette la qualité pour l'UI
-                //
-                // Règle : on garde le point si c'est mieux que ce qu'on avait OU si
-                // aucune position n'a encore été reçue depuis > 10 secondes.
-                // En extérieur  : GPS satellite, accuracy 3-10m   → points précis
-                // En intérieur  : réseau/Wi-Fi, accuracy 20-200m  → points acceptés
-                //                 mais on affiche l'avertissement pour l'oral
-                boolean isBetter = isBetterLocation(location, bestLocation);
-                if (!isBetter) return; // ignorer seulement si vraiment moins bon
+                // Sélection du meilleur provider disponible
+                if (!isBetterLocation(location, bestLocation)) return;
                 bestLocation = location;
-                // ──────────────────────────────────────────────────────────────────────
 
                 if (!BatteryHelper.shouldCollectData(ActiveTripActivity.this)) {
                     isCollecting = false;
@@ -172,24 +168,45 @@ public class ActiveTripActivity extends AppCompatActivity {
                     return;
                 }
 
+                // ── FIX SPAGHETTI : filtre de saut spatial ────────────────────────
+                // Si on a déjà un point accepté et que le nouveau est à plus de
+                // MAX_JUMP_METERS, c'est un artefact réseau → on ignore ce point.
+                // Le premier point est toujours accepté (lastAcceptedPoint == null).
+                if (lastAcceptedPoint != null) {
+                    float[] results = new float[1];
+                    Location.distanceBetween(
+                            lastAcceptedPoint.getLat(), lastAcceptedPoint.getLng(),
+                            location.getLatitude(), location.getLongitude(),
+                            results);
+                    float distanceMeters = results[0];
+
+                    if (distanceMeters > MAX_JUMP_METERS) {
+                        // Point rejeté — on met à jour l'UI mais on n'enregistre pas
+                        runOnUiThread(() -> tvGpsCount.setText(
+                                collectedPoints.size() + " pts GPS  ⚡ saut " +
+                                        Math.round(distanceMeters) + "m ignoré"));
+                        return;
+                    }
+                }
+                // ──────────────────────────────────────────────────────────────────
+
                 lastKnownLocation = location;
                 GpsPoint point = new GpsPoint(
                         location.getLatitude(), location.getLongitude(),
                         System.currentTimeMillis() / 1000,
                         location.getAltitude(), location.getAccuracy());
                 collectedPoints.add(point);
+                lastAcceptedPoint = point; // mémoriser pour le prochain filtre
 
-                // ── Affichage de la qualité GPS pour que l'utilisateur sache ──────────
-                String accuracyLabel;
+                // Label qualité GPS visible dans l'UI
                 float acc = location.getAccuracy();
-                String provider = location.getProvider() != null ? location.getProvider() : "?";
-                if (acc <= 10f)       accuracyLabel = "● GPS précis (" + Math.round(acc) + "m)";
-                else if (acc <= 50f)  accuracyLabel = "◐ GPS moyen (" + Math.round(acc) + "m)";
-                else                  accuracyLabel = "○ Réseau/Wi-Fi (" + Math.round(acc) + "m)";
-                // ──────────────────────────────────────────────────────────────────────
+                String accuracyLabel;
+                if (acc <= 10f)      accuracyLabel = "● précis (" + Math.round(acc) + "m)";
+                else if (acc <= 50f) accuracyLabel = "◐ moyen (" + Math.round(acc) + "m)";
+                else                 accuracyLabel = "○ réseau (" + Math.round(acc) + "m)";
 
                 runOnUiThread(() -> {
-                    tvGpsCount.setText(collectedPoints.size() + " points GPS  " + accuracyLabel);
+                    tvGpsCount.setText(collectedPoints.size() + " pts GPS  " + accuracyLabel);
                     tvBatteryLive.setText(BatteryHelper.getStatusMessage(ActiveTripActivity.this));
                 });
 
@@ -204,46 +221,28 @@ public class ActiveTripActivity extends AppCompatActivity {
             }
         };
 
-        // GPS satellite — précis, mais lent à démarrer et mort en intérieur
+        // GPS satellite — précis en extérieur
         locationManager.requestLocationUpdates(
                 LocationManager.GPS_PROVIDER, 5000, 5f, locationListener);
 
-        // Réseau/Wi-Fi — moins précis, mais fonctionne en intérieur
-        // interval 0 / minDistance 0 = aussi fréquent que possible (fallback)
+        // Réseau — fallback en intérieur
         if (locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
             locationManager.requestLocationUpdates(
                     LocationManager.NETWORK_PROVIDER, 0, 0, locationListener);
         }
     }
 
-    /**
-     * Détermine si une nouvelle localisation est meilleure que l'ancienne.
-     *
-     * Logique Android standard (simplifiée) :
-     * - Si la nouvelle est significativement plus précise → oui
-     * - Si l'ancienne a plus de 10s → on accepte quand même la nouvelle
-     * - Si même provider et plus récente → oui
-     *
-     * Référence : https://developer.android.com/guide/topics/location/strategies
-     */
     private boolean isBetterLocation(Location location, Location currentBest) {
-        if (currentBest == null) return true; // première position, on prend tout
-
+        if (currentBest == null) return true;
         long timeDelta = location.getTime() - currentBest.getTime();
-        boolean isSignificantlyNewer = timeDelta > 10_000; // 10 secondes
+        boolean isSignificantlyNewer = timeDelta > 10_000;
         boolean isSignificantlyOlder = timeDelta < -10_000;
         boolean isNewer = timeDelta > 0;
-
         if (isSignificantlyNewer) return true;
         if (isSignificantlyOlder) return false;
-
-        int accuracyDelta = (int) (location.getAccuracy() - currentBest.getAccuracy());
-        boolean isMoreAccurate    = accuracyDelta < 0;
-        boolean isSignificantlyLessAccurate = accuracyDelta > 200; // 200m de moins
-
-        if (isMoreAccurate) return true;
-        if (isNewer && !isSignificantlyLessAccurate) return true;
-
+        int accuracyDelta = (int)(location.getAccuracy() - currentBest.getAccuracy());
+        if (accuracyDelta < 0) return true;
+        if (isNewer && accuracyDelta <= 200) return true;
         return false;
     }
 
@@ -388,7 +387,9 @@ public class ActiveTripActivity extends AppCompatActivity {
                     String type = (String) spinnerType.getSelectedItem();
                     int rating = (int) ratingBar.getRating();
                     String comment = editComment.getText().toString().trim();
-                    Poi poi = new Poi(name, type, lat, lng, rating, comment, "");
+                    // On stocke le base64 de la photo dans le POI pour l'afficher dans TripDetails
+                    String poiPhoto = photoBase64;
+                    Poi poi = new Poi(name, type, lat, lng, rating, comment, poiPhoto != null ? poiPhoto : "");
                     collectedPois.add(poi);
                     tvPoiCount.setText(collectedPois.size() + " POI");
                     sendPoiToCloud(poi);
