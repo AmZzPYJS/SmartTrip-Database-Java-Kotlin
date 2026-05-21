@@ -40,4 +40,10 @@ public interface ApiService {
 
     @DELETE("/trips/{trip_id}")
     Call<Map<String, Object>> deleteTrip(@Path("trip_id") String tripId);
+
+    // ── Nouveau endpoint — partage public d'un voyage ─────────────────────────
+    // Retourne GPS + POI + photos d'un voyage sans authentification
+    // Utilisé pour générer le lien QR code
+    @GET("/trip/{trip_id}")
+    Call<Map<String, Object>> getTripPublic(@Path("trip_id") String tripId);
 }

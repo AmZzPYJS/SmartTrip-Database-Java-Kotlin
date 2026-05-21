@@ -4,11 +4,7 @@ plugins {
 
 android {
     namespace = "com.example.smarttrip"
-    compileSdk {
-        version = release(36) {
-            minorApiLevel = 1
-        }
-    }
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.example.smarttrip"
@@ -16,7 +12,6 @@ android {
         targetSdk = 36
         versionCode = 1
         versionName = "1.0"
-
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -45,8 +40,18 @@ dependencies {
     implementation(libs.retrofit)
     implementation(libs.retrofit.gson)
     implementation(libs.okhttp.logging)
+
+    // ── Room (cache offline) ──────────────────────────────────────────────────
+    implementation("androidx.room:room-runtime:2.6.1")
+    annotationProcessor("androidx.room:room-compiler:2.6.1")
+
+    // ── WorkManager (sync différée quand réseau revient) ─────────────────────
+    implementation("androidx.work:work-runtime:2.9.0")
+
+    // ── ZXing (génération QR code) ────────────────────────────────────────────
+    implementation("com.google.zxing:core:3.5.3")
+
     testImplementation(libs.junit)
     androidTestImplementation(libs.ext.junit)
     androidTestImplementation(libs.espresso.core)
-
 }

@@ -1,6 +1,7 @@
 package com.example.smarttrip;
 
 import android.content.Context;
+import android.content.Intent;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
@@ -9,16 +10,24 @@ import android.graphics.Paint;
 import android.graphics.drawable.BitmapDrawable;
 import android.os.Bundle;
 import android.preference.PreferenceManager;
+import android.view.Gravity;
 import android.view.MotionEvent;
 import android.view.View;
+import android.widget.Button;
 import android.widget.HorizontalScrollView;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
+import android.widget.Toast;
 
+import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 
 import com.example.smarttrip.api.ApiClient;
+import com.google.zxing.BarcodeFormat;
+import com.google.zxing.WriterException;
+import com.google.zxing.common.BitMatrix;
+import com.google.zxing.qrcode.QRCodeWriter;
 
 import org.osmdroid.config.Configuration;
 import org.osmdroid.tileprovider.tilesource.TileSourceFactory;
@@ -37,11 +46,13 @@ public class TripDetailsActivity extends AppCompatActivity {
 
     private MapView mapView;
 
+    // URL publique de l'API FastAPI
+    private static final String API_BASE_URL = "https://smarttrip-api.onrender.com";
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        // OSMDroid init — load() avant setUserAgentValue() obligatoire
         Context ctx = getApplicationContext();
         Configuration.getInstance().load(ctx, PreferenceManager.getDefaultSharedPreferences(ctx));
         Configuration.getInstance().setUserAgentValue(getPackageName());
@@ -70,10 +81,12 @@ public class TripDetailsActivity extends AppCompatActivity {
         tvStats.setText(nbGps + " points GPS • " + nbPoi + " POI • "
                 + String.format("%.1f", distanceKm) + " km parcourus");
 
-        // ── Affichage des POI avec photo miniature si disponible ──────────────
         for (Poi poi : trip.getPois()) {
             addPoiView(layoutPois, poi);
         }
+
+        // ── Bouton partage QR ──────────────────────────────────────────────────
+        addShareButton(trip);
         // ──────────────────────────────────────────────────────────────────────
 
         tvBattery.setText(BatteryHelper.getStatusMessage(this));
@@ -81,6 +94,161 @@ public class TripDetailsActivity extends AppCompatActivity {
         setupMap(trip);
         loadPhotosForMap(trip);
         loadAndDisplayPhotos(trip);
+    }
+
+    // =========================================================================
+    // QR Code — partage de voyage
+    // =========================================================================
+
+    /**
+     * Ajoute un bouton "Partager ce voyage" dans le layout.
+     * Au clic : génère un QR code vers l'URL publique du voyage et propose
+     * le partage via le système Android (SMS, email, réseaux sociaux...).
+     */
+    private void addShareButton(Trip trip) {
+        // Construire l'URL publique
+        // GET /trip/{trip_id} → retourne GPS + POI + photos du voyage
+        String tripUrl = API_BASE_URL + "/trip/" + trip.getId();
+
+        // Trouver le LinearLayout parent dans le XML pour y insérer le bouton
+        // On ajoute le bouton juste après tvStats en le cherchant via le conteneur
+        LinearLayout container = (LinearLayout) findViewById(R.id.layoutPois).getParent();
+        if (container == null) return;
+
+        // Bouton violet SmartTrip
+        Button btnShare = new Button(this);
+        btnShare.setText("🔗  Partager ce voyage (QR code)");
+        btnShare.setTextColor(0xFFFFFFFF);
+        btnShare.setBackgroundColor(0xFF6C63FF);
+
+        float d = getResources().getDisplayMetrics().density;
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT);
+        params.setMargins(0, Math.round(16 * d), 0, Math.round(16 * d));
+        btnShare.setLayoutParams(params);
+
+        // Insérer AVANT la section POI (index 0 dans le conteneur scrollable)
+        // On cherche la position de tvStats pour insérer après
+        int insertIndex = container.getChildCount();
+        for (int i = 0; i < container.getChildCount(); i++) {
+            View child = container.getChildAt(i);
+            if (child instanceof TextView && ((TextView) child).getText().toString().contains("POI")) {
+                insertIndex = i;
+                break;
+            }
+        }
+        container.addView(btnShare, insertIndex);
+
+        btnShare.setOnClickListener(v -> showQrDialog(trip, tripUrl));
+    }
+
+    /**
+     * Affiche le QR code dans un Dialog avec options :
+     * - QR code scannable (Bitmap généré par ZXing)
+     * - Lien texte cliquable
+     * - Bouton "Partager" → Intent.ACTION_SEND (partage Android natif)
+     */
+    private void showQrDialog(Trip trip, String tripUrl) {
+        // Générer le QR code
+        Bitmap qrBitmap = generateQrCode(tripUrl, 600);
+        if (qrBitmap == null) {
+            Toast.makeText(this, "Erreur génération QR code", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        // Layout du dialog
+        LinearLayout dialogLayout = new LinearLayout(this);
+        dialogLayout.setOrientation(LinearLayout.VERTICAL);
+        dialogLayout.setPadding(48, 32, 48, 16);
+        dialogLayout.setGravity(Gravity.CENTER);
+
+        // Titre
+        TextView tvTitle = new TextView(this);
+        tvTitle.setText("Partager « " + trip.getTitle() + " »");
+        tvTitle.setTextSize(16);
+        tvTitle.setTextColor(0xFF1A1A2E);
+        tvTitle.setTypeface(null, android.graphics.Typeface.BOLD);
+        tvTitle.setGravity(Gravity.CENTER);
+        tvTitle.setPadding(0, 0, 0, 16);
+        dialogLayout.addView(tvTitle);
+
+        // QR code
+        ImageView ivQr = new ImageView(this);
+        int qrSize = Math.round(260 * getResources().getDisplayMetrics().density);
+        LinearLayout.LayoutParams qrParams = new LinearLayout.LayoutParams(qrSize, qrSize);
+        ivQr.setLayoutParams(qrParams);
+        ivQr.setImageBitmap(qrBitmap);
+        ivQr.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        dialogLayout.addView(ivQr);
+
+        // URL en texte
+        TextView tvUrl = new TextView(this);
+        tvUrl.setText(tripUrl);
+        tvUrl.setTextSize(10);
+        tvUrl.setTextColor(0xFF6C63FF);
+        tvUrl.setGravity(Gravity.CENTER);
+        tvUrl.setPadding(0, 12, 0, 0);
+        dialogLayout.addView(tvUrl);
+
+        // Instruction
+        TextView tvInstruction = new TextView(this);
+        tvInstruction.setText("Scannez ce QR code pour accéder au voyage");
+        tvInstruction.setTextSize(11);
+        tvInstruction.setTextColor(0xFF9999BB);
+        tvInstruction.setGravity(Gravity.CENTER);
+        tvInstruction.setPadding(0, 4, 0, 16);
+        dialogLayout.addView(tvInstruction);
+
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setView(dialogLayout)
+                .setPositiveButton("Fermer", null)
+                .setNeutralButton("📤 Partager le lien", null) // overridé après show()
+                .create();
+
+        dialog.show();
+
+        // Override du bouton pour éviter la fermeture automatique
+        dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener(v -> {
+            shareLink(trip.getTitle(), tripUrl);
+        });
+    }
+
+    /**
+     * Génère un QR code Bitmap via ZXing.
+     * @param content texte/URL à encoder
+     * @param size    taille en pixels du Bitmap carré
+     * @return Bitmap du QR code, ou null en cas d'erreur
+     */
+    private Bitmap generateQrCode(String content, int size) {
+        try {
+            QRCodeWriter writer = new QRCodeWriter();
+            BitMatrix bitMatrix = writer.encode(content, BarcodeFormat.QR_CODE, size, size);
+
+            Bitmap bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.RGB_565);
+            for (int x = 0; x < size; x++) {
+                for (int y = 0; y < size; y++) {
+                    // Violet SmartTrip sur fond blanc
+                    bitmap.setPixel(x, y, bitMatrix.get(x, y) ? 0xFF6C63FF : 0xFFFFFFFF);
+                }
+            }
+            return bitmap;
+        } catch (WriterException e) {
+            return null;
+        }
+    }
+
+    /**
+     * Partage le lien via le système Android natif
+     * (SMS, email, WhatsApp, copier dans le presse-papiers, etc.)
+     */
+    private void shareLink(String tripTitle, String tripUrl) {
+        Intent shareIntent = new Intent(Intent.ACTION_SEND);
+        shareIntent.setType("text/plain");
+        shareIntent.putExtra(Intent.EXTRA_SUBJECT, "SmartTrip — " + tripTitle);
+        shareIntent.putExtra(Intent.EXTRA_TEXT,
+                "Découvre mon voyage « " + tripTitle + " » sur SmartTrip :\n" + tripUrl);
+        startActivity(Intent.createChooser(shareIntent, "Partager le voyage via…"));
     }
 
     // =========================================================================
@@ -109,15 +277,11 @@ public class TripDetailsActivity extends AppCompatActivity {
         List<GpsPoint> gpsPoints = trip.getGpsPoints();
         List<Poi> pois = trip.getPois();
 
-        // Tri chronologique — évite les croisements de tracé
         Collections.sort(gpsPoints, (a, b) -> Long.compare(a.getTimestamp(), b.getTimestamp()));
 
-        // Tracé violet SmartTrip
         if (gpsPoints.size() >= 2) {
             List<GeoPoint> routePoints = new ArrayList<>();
-            for (GpsPoint p : gpsPoints) {
-                routePoints.add(new GeoPoint(p.getLat(), p.getLng()));
-            }
+            for (GpsPoint p : gpsPoints) routePoints.add(new GeoPoint(p.getLat(), p.getLng()));
             Polyline polyline = new Polyline(mapView);
             polyline.setPoints(routePoints);
             polyline.getOutlinePaint().setColor(Color.parseColor("#6C63FF"));
@@ -125,7 +289,6 @@ public class TripDetailsActivity extends AppCompatActivity {
             mapView.getOverlays().add(polyline);
         }
 
-        // Marqueurs POI rouges
         for (Poi poi : pois) {
             Marker marker = new Marker(mapView);
             marker.setPosition(new GeoPoint(poi.getLat(), poi.getLng()));
@@ -139,7 +302,6 @@ public class TripDetailsActivity extends AppCompatActivity {
             mapView.getOverlays().add(marker);
         }
 
-        // Zoom automatique
         List<GeoPoint> allPoints = new ArrayList<>();
         for (GpsPoint p : gpsPoints) allPoints.add(new GeoPoint(p.getLat(), p.getLng()));
         for (Poi poi : pois) allPoints.add(new GeoPoint(poi.getLat(), poi.getLng()));
@@ -198,7 +360,7 @@ public class TripDetailsActivity extends AppCompatActivity {
     }
 
     // =========================================================================
-    // Photos cloud → galerie paysage + marqueurs carte
+    // Photos cloud
     // =========================================================================
 
     private void loadPhotosForMap(Trip trip) {
@@ -272,10 +434,6 @@ public class TripDetailsActivity extends AppCompatActivity {
                 });
     }
 
-    /**
-     * Galerie horizontale — format PAYSAGE carte postale (200×140dp, centerCrop).
-     * Les marqueurs photo sur la carte sont des miniatures carrées distinctes.
-     */
     private void addPhotoToGallery(String base64) {
         LinearLayout galleryLayout = findViewById(R.id.layoutPhotoGallery);
         if (galleryLayout == null) return;
@@ -284,8 +442,8 @@ public class TripDetailsActivity extends AppCompatActivity {
             Bitmap bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
 
             float density = getResources().getDisplayMetrics().density;
-            int width  = Math.round(200 * density); // largeur paysage
-            int height = Math.round(130 * density); // hauteur fixe → format carte postale
+            int width  = Math.round(200 * density);
+            int height = Math.round(130 * density);
 
             ImageView img = new ImageView(this);
             LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(width, height);
@@ -313,7 +471,7 @@ public class TripDetailsActivity extends AppCompatActivity {
         fullImg.setImageBitmap(bitmap);
         fullImg.setScaleType(ImageView.ScaleType.FIT_CENTER);
         fullImg.setPadding(16, 16, 16, 16);
-        new androidx.appcompat.app.AlertDialog.Builder(this)
+        new AlertDialog.Builder(this)
                 .setView(fullImg)
                 .setPositiveButton("Fermer", null)
                 .show();
@@ -327,7 +485,7 @@ public class TripDetailsActivity extends AppCompatActivity {
     @Override protected void onPause()  { super.onPause();  if (mapView != null) mapView.onPause(); }
 
     // =========================================================================
-    // Calculs
+    // Calculs & POI card
     // =========================================================================
 
     private double calculateTotalDistance(Trip trip) {
@@ -337,15 +495,6 @@ public class TripDetailsActivity extends AppCompatActivity {
         return total;
     }
 
-    /**
-     * Card POI — dark mode + photo miniature paysage si disponible.
-     *
-     * ── FIX PHOTO POI ─────────────────────────────────────────────────────────
-     * Le champ poi.getPhotoBase64() est maintenant lu et affiché comme
-     * ImageView 160×100dp en format paysage sous le commentaire.
-     * Si pas de photo → rien affiché (pas d'espace vide).
-     * ──────────────────────────────────────────────────────────────────────────
-     */
     private void addPoiView(LinearLayout container, Poi poi) {
         float d = getResources().getDisplayMetrics().density;
 
@@ -358,7 +507,6 @@ public class TripDetailsActivity extends AppCompatActivity {
         cardParams.setMargins(0, 0, 0, Math.round(12*d));
         card.setLayoutParams(cardParams);
 
-        // Ligne nom + type
         LinearLayout headerRow = new LinearLayout(this);
         headerRow.setOrientation(LinearLayout.HORIZONTAL);
         headerRow.setLayoutParams(new LinearLayout.LayoutParams(
@@ -382,7 +530,6 @@ public class TripDetailsActivity extends AppCompatActivity {
         headerRow.addView(tvType);
         card.addView(headerRow);
 
-        // Étoiles
         TextView tvRating = new TextView(this);
         tvRating.setText(poi.getRatingStars());
         tvRating.setTextSize(14);
@@ -390,7 +537,6 @@ public class TripDetailsActivity extends AppCompatActivity {
         tvRating.setPadding(0, Math.round(6*d), 0, Math.round(2*d));
         card.addView(tvRating);
 
-        // Commentaire
         if (poi.getComment() != null && !poi.getComment().isEmpty()) {
             TextView tvComment = new TextView(this);
             tvComment.setText(poi.getComment());
@@ -400,7 +546,6 @@ public class TripDetailsActivity extends AppCompatActivity {
             card.addView(tvComment);
         }
 
-        // ── Photo associée au POI — format paysage 160×100dp ──────────────────
         String photoB64 = poi.getPhotoBase64();
         if (photoB64 != null && !photoB64.isEmpty()) {
             try {
@@ -422,15 +567,12 @@ public class TripDetailsActivity extends AppCompatActivity {
                             outline.setRoundRect(0, 0, view.getWidth(), view.getHeight(), 6*d);
                         }
                     });
-                    // Clic → plein écran
                     imgPoi.setOnClickListener(v -> showFullPhoto(bmp));
                     card.addView(imgPoi);
                 }
             } catch (Exception ignored) {}
         }
-        // ──────────────────────────────────────────────────────────────────────
 
-        // Coordonnées GPS
         TextView tvCoords = new TextView(this);
         tvCoords.setText("GPS : " + String.format("%.5f", poi.getLat())
                 + ", " + String.format("%.5f", poi.getLng()));

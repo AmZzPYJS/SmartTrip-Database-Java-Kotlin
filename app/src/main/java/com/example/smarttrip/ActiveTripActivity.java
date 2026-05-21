@@ -26,16 +26,23 @@ import android.widget.RatingBar;
 import android.widget.Spinner;
 import android.widget.TextView;
 import android.widget.Toast;
+
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.FileProvider;
+
 import com.example.smarttrip.api.ApiClient;
 import com.example.smarttrip.api.BatteryDto;
 import com.example.smarttrip.api.GpsDataDto;
 import com.example.smarttrip.api.LocationDto;
 import com.example.smarttrip.api.PhotoDto;
 import com.example.smarttrip.api.PoiDto;
+import com.example.smarttrip.db.AppDatabase;
+import com.example.smarttrip.db.GpsPointEntity;
+import com.example.smarttrip.db.PhotoEntity;
+import com.example.smarttrip.db.PoiEntity;
+
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.IOException;
@@ -46,6 +53,8 @@ import java.util.Date;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.concurrent.Executors;
+
 import retrofit2.Call;
 import retrofit2.Callback;
 import retrofit2.Response;
@@ -69,14 +78,9 @@ public class ActiveTripActivity extends AppCompatActivity {
     private Location lastKnownLocation;
     private Location bestLocation = null;
 
-    // ── FIX GPS SPAGHETTI ─────────────────────────────────────────────────────
-    // On garde le dernier point ACCEPTÉ pour calculer la distance avec le suivant.
-    // Un point est rejeté s'il est à plus de MAX_JUMP_METERS du précédent,
-    // ce qui élimine les sauts dus au réseau en intérieur.
-    // En extérieur (GPS précis) les points sont proches → jamais rejetés.
+    // Filtre saut spatial — élimine les sauts réseau en intérieur
     private GpsPoint lastAcceptedPoint = null;
-    private static final float MAX_JUMP_METERS = 50f; // saut max acceptable entre 2 points
-    // ──────────────────────────────────────────────────────────────────────────
+    private static final float MAX_JUMP_METERS = 50f;
 
     private final List<GpsPoint> collectedPoints   = new ArrayList<>();
     private final List<Poi>      collectedPois      = new ArrayList<>();
@@ -99,12 +103,18 @@ public class ActiveTripActivity extends AppCompatActivity {
 
     private final Handler handler = new Handler(Looper.getMainLooper());
 
+    // ── Room DB ───────────────────────────────────────────────────────────────
+    private AppDatabase localDb;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_active_trip);
 
         tripStartTime = System.currentTimeMillis();
+
+        // Init Room (accès DB sur thread principal interdit → on le fait en arrière-plan)
+        localDb = AppDatabase.getInstance(this);
 
         tvTripStatus       = findViewById(R.id.tvTripStatus);
         tvGpsCount         = findViewById(R.id.tvGpsCount);
@@ -141,6 +151,10 @@ public class ActiveTripActivity extends AppCompatActivity {
         startGpsCollection();
     }
 
+    // =========================================================================
+    // GPS
+    // =========================================================================
+
     private void startGpsCollection() {
         locationManager = (LocationManager) getSystemService(LOCATION_SERVICE);
 
@@ -157,7 +171,6 @@ public class ActiveTripActivity extends AppCompatActivity {
             public void onLocationChanged(Location location) {
                 if (!isCollecting) return;
 
-                // Sélection du meilleur provider disponible
                 if (!isBetterLocation(location, bestLocation)) return;
                 bestLocation = location;
 
@@ -168,27 +181,19 @@ public class ActiveTripActivity extends AppCompatActivity {
                     return;
                 }
 
-                // ── FIX SPAGHETTI : filtre de saut spatial ────────────────────────
-                // Si on a déjà un point accepté et que le nouveau est à plus de
-                // MAX_JUMP_METERS, c'est un artefact réseau → on ignore ce point.
-                // Le premier point est toujours accepté (lastAcceptedPoint == null).
+                // Filtre saut spatial
                 if (lastAcceptedPoint != null) {
                     float[] results = new float[1];
                     Location.distanceBetween(
                             lastAcceptedPoint.getLat(), lastAcceptedPoint.getLng(),
-                            location.getLatitude(), location.getLongitude(),
-                            results);
-                    float distanceMeters = results[0];
-
-                    if (distanceMeters > MAX_JUMP_METERS) {
-                        // Point rejeté — on met à jour l'UI mais on n'enregistre pas
+                            location.getLatitude(), location.getLongitude(), results);
+                    if (results[0] > MAX_JUMP_METERS) {
                         runOnUiThread(() -> tvGpsCount.setText(
                                 collectedPoints.size() + " pts GPS  ⚡ saut " +
-                                        Math.round(distanceMeters) + "m ignoré"));
+                                        Math.round(results[0]) + "m ignoré"));
                         return;
                     }
                 }
-                // ──────────────────────────────────────────────────────────────────
 
                 lastKnownLocation = location;
                 GpsPoint point = new GpsPoint(
@@ -196,9 +201,8 @@ public class ActiveTripActivity extends AppCompatActivity {
                         System.currentTimeMillis() / 1000,
                         location.getAltitude(), location.getAccuracy());
                 collectedPoints.add(point);
-                lastAcceptedPoint = point; // mémoriser pour le prochain filtre
+                lastAcceptedPoint = point;
 
-                // Label qualité GPS visible dans l'UI
                 float acc = location.getAccuracy();
                 String accuracyLabel;
                 if (acc <= 10f)      accuracyLabel = "● précis (" + Math.round(acc) + "m)";
@@ -210,7 +214,8 @@ public class ActiveTripActivity extends AppCompatActivity {
                     tvBatteryLive.setText(BatteryHelper.getStatusMessage(ActiveTripActivity.this));
                 });
 
-                sendGpsToCloud(point);
+                // ── ROOM FIRST, cloud second ──────────────────────────────────
+                saveGpsToRoomAndSync(point, location);
             }
 
             @Override public void onStatusChanged(String p, int s, Bundle e) {}
@@ -221,16 +226,160 @@ public class ActiveTripActivity extends AppCompatActivity {
             }
         };
 
-        // GPS satellite — précis en extérieur
         locationManager.requestLocationUpdates(
                 LocationManager.GPS_PROVIDER, 5000, 5f, locationListener);
 
-        // Réseau — fallback en intérieur
         if (locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
             locationManager.requestLocationUpdates(
                     LocationManager.NETWORK_PROVIDER, 0, 0, locationListener);
         }
     }
+
+    // =========================================================================
+    // Room + Cloud — GPS
+    // =========================================================================
+
+    /**
+     * Sauvegarde d'abord dans Room (toujours), puis tente l'envoi cloud.
+     * Si le cloud échoue ou est absent : SyncWorker reprendra dès que le réseau revient.
+     */
+    private void saveGpsToRoomAndSync(GpsPoint point, Location location) {
+        String timestamp = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.FRANCE).format(new Date());
+
+        // 1. Room (arrière-plan obligatoire — pas d'I/O sur le thread principal)
+        Executors.newSingleThreadExecutor().execute(() -> {
+            GpsPointEntity entity = new GpsPointEntity();
+            entity.userId         = "amin";
+            entity.tripId         = "trip_" + tripStartTime;
+            entity.tripName       = tripName;
+            entity.latitude       = point.getLat();
+            entity.longitude      = point.getLng();
+            entity.altitude       = point.getAltitude();
+            entity.accuracy       = location.getAccuracy();
+            entity.timestamp      = point.getTimestamp();
+            entity.batteryLevel   = BatteryHelper.getBatteryLevel(this);
+            entity.batteryCharging = BatteryHelper.isCharging(this);
+            entity.recordedAt     = timestamp;
+            entity.synced         = false;
+            localDb.gpsPointDao().insert(entity);
+
+            // 2. Planifier SyncWorker (ne fait rien si réseau absent)
+            SyncWorker.schedule(this);
+        });
+
+        // 3. Tentative cloud directe (optimiste — si réseau dispo)
+        LocationDto locDto = new LocationDto(point.getLat(), point.getLng(), point.getAltitude());
+        BatteryDto  batDto = new BatteryDto(BatteryHelper.getBatteryLevel(this), BatteryHelper.isCharging(this));
+        GpsDataDto  dto    = new GpsDataDto("amin", "trip_" + tripStartTime, tripName, locDto, batDto, timestamp);
+
+        ApiClient.getInstance().getApiService().sendGps(dto)
+                .enqueue(new Callback<Map<String, Object>>() {
+                    @Override
+                    public void onResponse(Call<Map<String, Object>> call, Response<Map<String, Object>> response) {
+                        if (response.isSuccessful()) {
+                            cloudPointsSent++;
+                            runOnUiThread(() -> tvCloudCount.setText(cloudPointsSent + " points envoyés au cloud"));
+                        }
+                    }
+                    @Override
+                    public void onFailure(Call<Map<String, Object>> call, Throwable t) {
+                        // Pas de toast — SyncWorker s'en charge en silence
+                    }
+                });
+    }
+
+    // =========================================================================
+    // Room + Cloud — POI
+    // =========================================================================
+
+    private void savePoiToRoomAndSync(Poi poi) {
+        String timestamp = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.FRANCE).format(new Date());
+
+        Executors.newSingleThreadExecutor().execute(() -> {
+            PoiEntity entity   = new PoiEntity();
+            entity.userId      = "amin";
+            entity.tripId      = "trip_" + tripStartTime;
+            entity.tripName    = tripName;
+            entity.name        = poi.getName();
+            entity.type        = poi.getType();
+            entity.latitude    = poi.getLat();
+            entity.longitude   = poi.getLng();
+            entity.rating      = poi.getRating();
+            entity.comment     = poi.getComment();
+            entity.photoBase64 = poi.getPhotoBase64();
+            entity.recordedAt  = timestamp;
+            entity.synced      = false;
+            localDb.poiDao().insert(entity);
+            SyncWorker.schedule(this);
+        });
+
+        // Tentative cloud directe
+        LocationDto loc = new LocationDto(poi.getLat(), poi.getLng(), 0.0);
+        PoiDto dto = new PoiDto("amin", "trip_" + tripStartTime, tripName,
+                poi.getName(), poi.getType(), loc,
+                poi.getRating(), poi.getComment(), timestamp, photoBase64);
+
+        ApiClient.getInstance().getApiService().sendPoi(dto)
+                .enqueue(new Callback<Map<String, Object>>() {
+                    @Override
+                    public void onResponse(Call<Map<String, Object>> call, Response<Map<String, Object>> response) {
+                        runOnUiThread(() -> Toast.makeText(ActiveTripActivity.this,
+                                response.isSuccessful()
+                                        ? "POI « " + poi.getName() + " » envoyé ✓"
+                                        : "POI sauvegardé localement",
+                                Toast.LENGTH_SHORT).show());
+                    }
+                    @Override
+                    public void onFailure(Call<Map<String, Object>> call, Throwable t) {
+                        runOnUiThread(() -> Toast.makeText(ActiveTripActivity.this,
+                                "POI sauvegardé — sync au retour du réseau", Toast.LENGTH_SHORT).show());
+                    }
+                });
+    }
+
+    // =========================================================================
+    // Room + Cloud — Photo
+    // =========================================================================
+
+    private void savePhotoToRoomAndSync(String b64, double lat, double lng) {
+        String timestamp = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.FRANCE).format(new Date());
+
+        Executors.newSingleThreadExecutor().execute(() -> {
+            PhotoEntity entity   = new PhotoEntity();
+            entity.userId        = "amin";
+            entity.tripId        = "trip_" + tripStartTime;
+            entity.tripName      = tripName;
+            entity.latitude      = lat;
+            entity.longitude     = lng;
+            entity.photoBase64   = b64;
+            entity.recordedAt    = timestamp;
+            entity.synced        = false;
+            localDb.photoDao().insert(entity);
+            SyncWorker.schedule(this);
+        });
+
+        LocationDto loc = new LocationDto(lat, lng, 0.0);
+        PhotoDto dto = new PhotoDto("amin", "trip_" + tripStartTime, loc, b64, timestamp);
+
+        ApiClient.getInstance().getApiService().sendPhoto(dto)
+                .enqueue(new Callback<Map<String, Object>>() {
+                    @Override
+                    public void onResponse(Call<Map<String, Object>> call, Response<Map<String, Object>> response) {
+                        runOnUiThread(() -> Toast.makeText(ActiveTripActivity.this,
+                                response.isSuccessful() ? "Photo envoyée ✓" : "Photo sauvegardée localement",
+                                Toast.LENGTH_SHORT).show());
+                    }
+                    @Override
+                    public void onFailure(Call<Map<String, Object>> call, Throwable t) {
+                        runOnUiThread(() -> Toast.makeText(ActiveTripActivity.this,
+                                "Photo sauvegardée — sync au retour du réseau", Toast.LENGTH_SHORT).show());
+                    }
+                });
+    }
+
+    // =========================================================================
+    // isBetterLocation
+    // =========================================================================
 
     private boolean isBetterLocation(Location location, Location currentBest) {
         if (currentBest == null) return true;
@@ -247,8 +396,7 @@ public class ActiveTripActivity extends AppCompatActivity {
     }
 
     @Override
-    public void onRequestPermissionsResult(int requestCode,
-                                           String[] permissions, int[] grantResults) {
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
         if (requestCode == REQUEST_LOCATION_PERMISSION
                 && grantResults.length > 0
@@ -261,74 +409,9 @@ public class ActiveTripActivity extends AppCompatActivity {
         }
     }
 
-    private void sendGpsToCloud(GpsPoint point) {
-        String timestamp = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.FRANCE).format(new Date());
-        LocationDto location = new LocationDto(point.getLat(), point.getLng(), point.getAltitude());
-        BatteryDto battery = new BatteryDto(BatteryHelper.getBatteryLevel(this), BatteryHelper.isCharging(this));
-        GpsDataDto dto = new GpsDataDto("amin", "trip_" + tripStartTime, tripName, location, battery, timestamp);
-
-        ApiClient.getInstance().getApiService().sendGps(dto)
-                .enqueue(new Callback<Map<String, Object>>() {
-                    @Override
-                    public void onResponse(Call<Map<String, Object>> call, Response<Map<String, Object>> response) {
-                        if (response.isSuccessful()) {
-                            cloudPointsSent++;
-                            runOnUiThread(() -> tvCloudCount.setText(cloudPointsSent + " points envoyés au cloud"));
-                        }
-                    }
-                    @Override
-                    public void onFailure(Call<Map<String, Object>> call, Throwable t) {
-                        runOnUiThread(() -> Toast.makeText(ActiveTripActivity.this,
-                                "Erreur GPS cloud : " + t.getMessage(), Toast.LENGTH_SHORT).show());
-                    }
-                });
-    }
-
-    private void sendPoiToCloud(Poi poi) {
-        String timestamp = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.FRANCE).format(new Date());
-        LocationDto location = new LocationDto(poi.getLat(), poi.getLng(), 0.0);
-        PoiDto dto = new PoiDto("amin", "trip_" + tripStartTime, tripName,
-                poi.getName(), poi.getType(), location,
-                poi.getRating(), poi.getComment(), timestamp, photoBase64);
-
-        ApiClient.getInstance().getApiService().sendPoi(dto)
-                .enqueue(new Callback<Map<String, Object>>() {
-                    @Override
-                    public void onResponse(Call<Map<String, Object>> call, Response<Map<String, Object>> response) {
-                        runOnUiThread(() -> Toast.makeText(ActiveTripActivity.this,
-                                response.isSuccessful()
-                                        ? "POI « " + poi.getName() + " » envoyé ✓"
-                                        : "Erreur envoi POI",
-                                Toast.LENGTH_SHORT).show());
-                    }
-                    @Override
-                    public void onFailure(Call<Map<String, Object>> call, Throwable t) {
-                        runOnUiThread(() -> Toast.makeText(ActiveTripActivity.this,
-                                "POI non envoyé : " + t.getMessage(), Toast.LENGTH_SHORT).show());
-                    }
-                });
-    }
-
-    private void sendMemoryPhotoToCloud(String b64, double lat, double lng) {
-        String timestamp = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.FRANCE).format(new Date());
-        LocationDto location = new LocationDto(lat, lng, 0.0);
-        PhotoDto dto = new PhotoDto("amin", "trip_" + tripStartTime, location, b64, timestamp);
-
-        ApiClient.getInstance().getApiService().sendPhoto(dto)
-                .enqueue(new Callback<Map<String, Object>>() {
-                    @Override
-                    public void onResponse(Call<Map<String, Object>> call, Response<Map<String, Object>> response) {
-                        runOnUiThread(() -> Toast.makeText(ActiveTripActivity.this,
-                                response.isSuccessful() ? "Photo envoyée ✓" : "Erreur envoi photo",
-                                Toast.LENGTH_SHORT).show());
-                    }
-                    @Override
-                    public void onFailure(Call<Map<String, Object>> call, Throwable t) {
-                        runOnUiThread(() -> Toast.makeText(ActiveTripActivity.this,
-                                "Photo non envoyée", Toast.LENGTH_SHORT).show());
-                    }
-                });
-    }
+    // =========================================================================
+    // POI Dialog
+    // =========================================================================
 
     private void showAddPoiDialog() {
         if (lastKnownLocation == null && collectedPoints.isEmpty()) {
@@ -353,11 +436,11 @@ public class ActiveTripActivity extends AppCompatActivity {
                 android.R.layout.simple_spinner_dropdown_item, types));
 
         photoBase64 = null;
-        photoUri = null;
+        photoUri    = null;
 
         btnPhoto.setOnClickListener(v -> dispatchTakePictureIntent(imgPreview, tvPhotoSt));
         btnGallery.setOnClickListener(v -> {
-            currentImgPreview = imgPreview;
+            currentImgPreview   = imgPreview;
             currentTvPhotoStatus = tvPhotoSt;
             Intent intent = new Intent(Intent.ACTION_PICK);
             intent.setType("image/*");
@@ -384,19 +467,26 @@ public class ActiveTripActivity extends AppCompatActivity {
                         Toast.makeText(this, "Le nom est obligatoire", Toast.LENGTH_SHORT).show();
                         return;
                     }
-                    String type = (String) spinnerType.getSelectedItem();
-                    int rating = (int) ratingBar.getRating();
+                    String type    = (String) spinnerType.getSelectedItem();
+                    int    rating  = (int) ratingBar.getRating();
                     String comment = editComment.getText().toString().trim();
-                    // On stocke le base64 de la photo dans le POI pour l'afficher dans TripDetails
                     String poiPhoto = photoBase64;
+
                     Poi poi = new Poi(name, type, lat, lng, rating, comment, poiPhoto != null ? poiPhoto : "");
+                    poi.setPhotoBase64(poiPhoto);
                     collectedPois.add(poi);
                     tvPoiCount.setText(collectedPois.size() + " POI");
-                    sendPoiToCloud(poi);
+
+                    // Room + cloud
+                    savePoiToRoomAndSync(poi);
                 })
                 .setNegativeButton("Annuler", null)
                 .show();
     }
+
+    // =========================================================================
+    // Photos souvenirs
+    // =========================================================================
 
     private void takeMemoryPhoto() {
         if (lastKnownLocation == null && collectedPoints.isEmpty()) {
@@ -444,7 +534,9 @@ public class ActiveTripActivity extends AppCompatActivity {
         tvPhotoCount.setText(memoryPhotosCount + " photo(s) prise(s)");
         tvPhotoLimit.setText(memoryPhotosCount + " / " + MAX_PHOTOS + " photos");
         btnDeleteLastPhoto.setVisibility(View.VISIBLE);
-        sendMemoryPhotoToCloud(b64, lat, lng);
+
+        // Room + cloud
+        savePhotoToRoomAndSync(b64, lat, lng);
     }
 
     private void showPhotosManager() {
@@ -469,7 +561,7 @@ public class ActiveTripActivity extends AppCompatActivity {
             byte[] bytes = Base64.decode(b64, Base64.DEFAULT);
             Bitmap bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
             img.setImageBitmap(bmp);
-            int size = (int) (80 * getResources().getDisplayMetrics().density);
+            int size = (int)(80 * getResources().getDisplayMetrics().density);
             LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(size, size);
             p.setMargins(0, 0, 24, 0);
             img.setLayoutParams(p);
@@ -518,6 +610,10 @@ public class ActiveTripActivity extends AppCompatActivity {
                 .setPositiveButton("Fermer", null)
                 .show();
     }
+
+    // =========================================================================
+    // onActivityResult
+    // =========================================================================
 
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
@@ -573,6 +669,10 @@ public class ActiveTripActivity extends AppCompatActivity {
         }
     }
 
+    // =========================================================================
+    // Utilitaires
+    // =========================================================================
+
     private void dispatchTakePictureIntent(ImageView imgPreview, TextView tvStatus) {
         Intent intent = new Intent(MediaStore.ACTION_IMAGE_CAPTURE);
         if (intent.resolveActivity(getPackageManager()) != null) {
@@ -581,7 +681,7 @@ public class ActiveTripActivity extends AppCompatActivity {
                 photoUri = FileProvider.getUriForFile(this,
                         "com.example.smarttrip.fileprovider", f);
                 intent.putExtra(MediaStore.EXTRA_OUTPUT, photoUri);
-                currentImgPreview = imgPreview;
+                currentImgPreview   = imgPreview;
                 currentTvPhotoStatus = tvStatus;
                 startActivityForResult(intent, REQUEST_IMAGE_CAPTURE);
             } catch (IOException e) {
