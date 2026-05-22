@@ -45,8 +45,6 @@ import java.util.List;
 public class TripDetailsActivity extends AppCompatActivity {
 
     private MapView mapView;
-
-    // URL publique de l'API FastAPI
     private static final String API_BASE_URL = "https://smarttrip-api.onrender.com";
 
     @Override
@@ -81,89 +79,247 @@ public class TripDetailsActivity extends AppCompatActivity {
         tvStats.setText(nbGps + " points GPS • " + nbPoi + " POI • "
                 + String.format("%.1f", distanceKm) + " km parcourus");
 
+        // ── POI — UN SEUL appel ici, pas de doublon ───────────────────────────
         for (Poi poi : trip.getPois()) {
             addPoiView(layoutPois, poi);
         }
 
-        // ── Bouton partage QR ──────────────────────────────────────────────────
-        addShareButton(trip);
-        // ──────────────────────────────────────────────────────────────────────
+        // ── Bouton QR — branché sur le bouton XML (pas de création dynamique) ─
+        // Le bouton android:id="@+id/btnShareTrip" est déclaré dans le XML
+        Button btnShare = findViewById(R.id.btnShareTrip);
+        if (btnShare != null) {
+            btnShare.setOnClickListener(v -> showQrDialog(trip));
+        }
 
         tvBattery.setText(BatteryHelper.getStatusMessage(this));
-
         setupMap(trip);
-        loadPhotosForMap(trip);
-        loadAndDisplayPhotos(trip);
+
+        // ── Photos : UN SEUL appel API pour galerie + marqueurs carte ─────────
+        loadPhotosOnce(trip);
     }
 
     // =========================================================================
-    // QR Code — partage de voyage
+    // Photos — UN SEUL appel API pour éviter le doublon
     // =========================================================================
 
     /**
-     * Ajoute un bouton "Partager ce voyage" dans le layout.
-     * Au clic : génère un QR code vers l'URL publique du voyage et propose
-     * le partage via le système Android (SMS, email, réseaux sociaux...).
+     * Charge les photos UNE SEULE FOIS depuis l'API.
+     * Avant : loadPhotosForMap() + loadAndDisplayPhotos() → 2 appels → doublons
+     * Maintenant : un seul appel, on remplit galerie ET marqueurs carte.
      */
-    private void addShareButton(Trip trip) {
-        // Construire l'URL publique
-        // GET /trip/{trip_id} → retourne GPS + POI + photos du voyage
-        String tripUrl = API_BASE_URL + "/trip/" + trip.getId();
+    private void loadPhotosOnce(Trip trip) {
+        ApiClient.getInstance().getApiService().getUserPhotos("amin")
+                .enqueue(new retrofit2.Callback<java.util.List<java.util.Map<String, Object>>>() {
+                    @Override
+                    public void onResponse(
+                            retrofit2.Call<java.util.List<java.util.Map<String, Object>>> call,
+                            retrofit2.Response<java.util.List<java.util.Map<String, Object>>> response) {
 
-        // Trouver le LinearLayout parent dans le XML pour y insérer le bouton
-        // On ajoute le bouton juste après tvStats en le cherchant via le conteneur
-        LinearLayout container = (LinearLayout) findViewById(R.id.layoutPois).getParent();
-        if (container == null) return;
+                        if (!response.isSuccessful() || response.body() == null) return;
 
-        // Bouton violet SmartTrip
-        Button btnShare = new Button(this);
-        btnShare.setText("🔗  Partager ce voyage (QR code)");
-        btnShare.setTextColor(0xFFFFFFFF);
-        btnShare.setBackgroundColor(0xFF6C63FF);
+                        for (java.util.Map<String, Object> doc : response.body()) {
+                            String docTripId = (String) doc.get("trip_id");
+                            if (!trip.getId().equals(docTripId)) continue;
 
+                            String base64    = (String) doc.get("photo_base64");
+                            String recordedAt = (String) doc.get("recorded_at");
+
+                            // Coordonnées GPS de la photo
+                            double lat = 0, lng = 0;
+                            boolean hasCoords = false;
+                            try {
+                                java.util.Map<String, Object> loc =
+                                        (java.util.Map<String, Object>) doc.get("location");
+                                if (loc != null) {
+                                    lat = ((Number) loc.get("latitude")).doubleValue();
+                                    lng = ((Number) loc.get("longitude")).doubleValue();
+                                    hasCoords = true;
+                                }
+                            } catch (Exception ignored) {}
+
+                            final double fLat = lat;
+                            final double fLng = lng;
+                            final boolean fHasCoords = hasCoords;
+
+                            runOnUiThread(() -> {
+                                // 1. Ajouter dans la galerie paysage
+                                if (base64 != null) {
+                                    addPhotoToGallery(base64);
+                                }
+
+                                // 2. Ajouter marqueur sur la carte
+                                if (fHasCoords && mapView != null) {
+                                    Marker marker = new Marker(mapView);
+                                    marker.setPosition(new GeoPoint(fLat, fLng));
+                                    marker.setTitle("📸 Photo souvenir");
+                                    marker.setSnippet(recordedAt != null ? recordedAt : "");
+                                    marker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM);
+
+                                    if (base64 != null) {
+                                        try {
+                                            byte[] bytes = android.util.Base64.decode(
+                                                    base64, android.util.Base64.DEFAULT);
+                                            Bitmap bmp = BitmapFactory.decodeByteArray(
+                                                    bytes, 0, bytes.length);
+                                            // Marqueur au bon format (paysage ou portrait auto)
+                                            marker.setIcon(createPhotoMarkerIcon(bmp));
+                                        } catch (Exception e) {
+                                            marker.setIcon(createPoiMarker());
+                                        }
+                                    } else {
+                                        marker.setIcon(createPoiMarker());
+                                    }
+
+                                    marker.setOnMarkerClickListener((m, map) -> {
+                                        if (base64 != null) {
+                                            try {
+                                                byte[] bytes = android.util.Base64.decode(
+                                                        base64, android.util.Base64.DEFAULT);
+                                                Bitmap bmp = BitmapFactory.decodeByteArray(
+                                                        bytes, 0, bytes.length);
+                                                showFullPhoto(bmp);
+                                            } catch (Exception ignored2) {}
+                                        }
+                                        return true;
+                                    });
+
+                                    mapView.getOverlays().add(marker);
+                                    mapView.invalidate();
+                                }
+                            });
+                        }
+                    }
+
+                    @Override
+                    public void onFailure(
+                            retrofit2.Call<java.util.List<java.util.Map<String, Object>>> call,
+                            Throwable t) {
+                        // Photos non disponibles — pas bloquant
+                    }
+                });
+    }
+
+    // =========================================================================
+    // Galerie photos — format adaptatif (paysage ou portrait selon l'image)
+    // =========================================================================
+
+    private void addPhotoToGallery(String base64) {
+        LinearLayout galleryLayout = findViewById(R.id.layoutPhotoGallery);
+        if (galleryLayout == null) return;
+        try {
+            byte[] bytes = android.util.Base64.decode(base64, android.util.Base64.DEFAULT);
+            Bitmap bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
+            if (bitmap == null) return;
+
+            float density = getResources().getDisplayMetrics().density;
+
+            // Format adaptatif : paysage si largeur > hauteur, portrait sinon
+            // Hauteur fixe 130dp, largeur proportionnelle
+            int fixedH = Math.round(130 * density);
+            float ratio = (float) bitmap.getWidth() / bitmap.getHeight();
+            int computedW = Math.round(fixedH * ratio);
+            // Min 90dp, max 220dp pour rester raisonnable
+            int finalW = Math.max(Math.round(90 * density), Math.min(computedW, Math.round(220 * density)));
+
+            ImageView img = new ImageView(this);
+            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(finalW, fixedH);
+            params.setMargins(0, 0, Math.round(10 * density), 0);
+            img.setLayoutParams(params);
+            img.setScaleType(ImageView.ScaleType.CENTER_CROP);
+            img.setImageBitmap(bitmap);
+            img.setClipToOutline(true);
+            img.setOutlineProvider(new android.view.ViewOutlineProvider() {
+                @Override
+                public void getOutline(View view, android.graphics.Outline outline) {
+                    outline.setRoundRect(0, 0, view.getWidth(), view.getHeight(), 8 * density);
+                }
+            });
+            img.setOnClickListener(v -> showFullPhoto(bitmap));
+            galleryLayout.addView(img);
+
+            HorizontalScrollView sv = findViewById(R.id.scrollPhotoGallery);
+            if (sv != null) sv.setVisibility(View.VISIBLE);
+
+        } catch (Exception ignored) {}
+    }
+
+    // =========================================================================
+    // Marqueur photo — format adaptatif paysage/portrait sur la carte
+    // =========================================================================
+
+    /**
+     * Crée un marqueur carte qui respecte le format original de la photo.
+     * Paysage → 80×52dp  |  Portrait → 44×64dp  |  Carré → 60×60dp
+     * Bordure blanche + coins arrondis pour un look carte postale.
+     */
+    private BitmapDrawable createPhotoMarkerIcon(Bitmap photo) {
         float d = getResources().getDisplayMetrics().density;
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT);
-        params.setMargins(0, Math.round(16 * d), 0, Math.round(16 * d));
-        btnShare.setLayoutParams(params);
+        int border = Math.round(3 * d);
 
-        // Insérer AVANT la section POI (index 0 dans le conteneur scrollable)
-        // On cherche la position de tvStats pour insérer après
-        int insertIndex = container.getChildCount();
-        for (int i = 0; i < container.getChildCount(); i++) {
-            View child = container.getChildAt(i);
-            if (child instanceof TextView && ((TextView) child).getText().toString().contains("POI")) {
-                insertIndex = i;
-                break;
-            }
+        // Dimensions du marqueur selon le format de la photo
+        int mW, mH;
+        float ratio = (float) photo.getWidth() / photo.getHeight();
+        if (ratio >= 1.2f) {
+            // Paysage
+            mW = Math.round(80 * d);
+            mH = Math.round(52 * d);
+        } else if (ratio <= 0.85f) {
+            // Portrait
+            mW = Math.round(44 * d);
+            mH = Math.round(64 * d);
+        } else {
+            // Carré ou proche
+            mW = Math.round(60 * d);
+            mH = Math.round(60 * d);
         }
-        container.addView(btnShare, insertIndex);
 
-        btnShare.setOnClickListener(v -> showQrDialog(trip, tripUrl));
+        Bitmap result = Bitmap.createBitmap(mW, mH, Bitmap.Config.ARGB_8888);
+        Canvas canvas = new Canvas(result);
+
+        // Fond blanc avec coins arrondis
+        Paint paintBg = new Paint(Paint.ANTI_ALIAS_FLAG);
+        paintBg.setColor(Color.WHITE);
+        canvas.drawRoundRect(0, 0, mW, mH, 8 * d, 8 * d, paintBg);
+
+        // Photo redimensionnée en centerCrop dans le marqueur
+        int innerW = mW - border * 2;
+        int innerH = mH - border * 2;
+        float scaleX = (float) innerW / photo.getWidth();
+        float scaleY = (float) innerH / photo.getHeight();
+        float scale  = Math.max(scaleX, scaleY);
+        int scaledW  = Math.round(photo.getWidth() * scale);
+        int scaledH  = Math.round(photo.getHeight() * scale);
+        Bitmap scaled = Bitmap.createScaledBitmap(photo, scaledW, scaledH, true);
+
+        int cropX = Math.max(0, (scaledW - innerW) / 2);
+        int cropY = Math.max(0, (scaledH - innerH) / 2);
+        int safeCropW = Math.min(innerW, scaledW - cropX);
+        int safeCropH = Math.min(innerH, scaledH - cropY);
+        if (safeCropW > 0 && safeCropH > 0) {
+            Bitmap cropped = Bitmap.createBitmap(scaled, cropX, cropY, safeCropW, safeCropH);
+            canvas.drawBitmap(cropped, border, border, null);
+        }
+
+        return new BitmapDrawable(getResources(), result);
     }
 
-    /**
-     * Affiche le QR code dans un Dialog avec options :
-     * - QR code scannable (Bitmap généré par ZXing)
-     * - Lien texte cliquable
-     * - Bouton "Partager" → Intent.ACTION_SEND (partage Android natif)
-     */
-    private void showQrDialog(Trip trip, String tripUrl) {
-        // Générer le QR code
+    // =========================================================================
+    // QR Code
+    // =========================================================================
+
+    private void showQrDialog(Trip trip) {
+        String tripUrl = API_BASE_URL + "/trip/" + trip.getId();
         Bitmap qrBitmap = generateQrCode(tripUrl, 600);
         if (qrBitmap == null) {
             Toast.makeText(this, "Erreur génération QR code", Toast.LENGTH_SHORT).show();
             return;
         }
 
-        // Layout du dialog
         LinearLayout dialogLayout = new LinearLayout(this);
         dialogLayout.setOrientation(LinearLayout.VERTICAL);
         dialogLayout.setPadding(48, 32, 48, 16);
         dialogLayout.setGravity(Gravity.CENTER);
 
-        // Titre
         TextView tvTitle = new TextView(this);
         tvTitle.setText("Partager « " + trip.getTitle() + " »");
         tvTitle.setTextSize(16);
@@ -173,16 +329,13 @@ public class TripDetailsActivity extends AppCompatActivity {
         tvTitle.setPadding(0, 0, 0, 16);
         dialogLayout.addView(tvTitle);
 
-        // QR code
         ImageView ivQr = new ImageView(this);
         int qrSize = Math.round(260 * getResources().getDisplayMetrics().density);
-        LinearLayout.LayoutParams qrParams = new LinearLayout.LayoutParams(qrSize, qrSize);
-        ivQr.setLayoutParams(qrParams);
+        ivQr.setLayoutParams(new LinearLayout.LayoutParams(qrSize, qrSize));
         ivQr.setImageBitmap(qrBitmap);
         ivQr.setScaleType(ImageView.ScaleType.FIT_CENTER);
         dialogLayout.addView(ivQr);
 
-        // URL en texte
         TextView tvUrl = new TextView(this);
         tvUrl.setText(tripUrl);
         tvUrl.setTextSize(10);
@@ -191,7 +344,6 @@ public class TripDetailsActivity extends AppCompatActivity {
         tvUrl.setPadding(0, 12, 0, 0);
         dialogLayout.addView(tvUrl);
 
-        // Instruction
         TextView tvInstruction = new TextView(this);
         tvInstruction.setText("Scannez ce QR code pour accéder au voyage");
         tvInstruction.setTextSize(11);
@@ -203,45 +355,25 @@ public class TripDetailsActivity extends AppCompatActivity {
         AlertDialog dialog = new AlertDialog.Builder(this)
                 .setView(dialogLayout)
                 .setPositiveButton("Fermer", null)
-                .setNeutralButton("📤 Partager le lien", null) // overridé après show()
+                .setNeutralButton("📤 Partager le lien", null)
                 .create();
-
         dialog.show();
-
-        // Override du bouton pour éviter la fermeture automatique
-        dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener(v -> {
-            shareLink(trip.getTitle(), tripUrl);
-        });
+        dialog.getButton(AlertDialog.BUTTON_NEUTRAL)
+                .setOnClickListener(v -> shareLink(trip.getTitle(), tripUrl));
     }
 
-    /**
-     * Génère un QR code Bitmap via ZXing.
-     * @param content texte/URL à encoder
-     * @param size    taille en pixels du Bitmap carré
-     * @return Bitmap du QR code, ou null en cas d'erreur
-     */
     private Bitmap generateQrCode(String content, int size) {
         try {
             QRCodeWriter writer = new QRCodeWriter();
             BitMatrix bitMatrix = writer.encode(content, BarcodeFormat.QR_CODE, size, size);
-
             Bitmap bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.RGB_565);
-            for (int x = 0; x < size; x++) {
-                for (int y = 0; y < size; y++) {
-                    // Violet SmartTrip sur fond blanc
+            for (int x = 0; x < size; x++)
+                for (int y = 0; y < size; y++)
                     bitmap.setPixel(x, y, bitMatrix.get(x, y) ? 0xFF6C63FF : 0xFFFFFFFF);
-                }
-            }
             return bitmap;
-        } catch (WriterException e) {
-            return null;
-        }
+        } catch (WriterException e) { return null; }
     }
 
-    /**
-     * Partage le lien via le système Android natif
-     * (SMS, email, WhatsApp, copier dans le presse-papiers, etc.)
-     */
     private void shareLink(String tripTitle, String tripUrl) {
         Intent shareIntent = new Intent(Intent.ACTION_SEND);
         shareIntent.setType("text/plain");
@@ -252,7 +384,7 @@ public class TripDetailsActivity extends AppCompatActivity {
     }
 
     // =========================================================================
-    // Carte
+    // Carte OSMDroid
     // =========================================================================
 
     private void setupMap(Trip trip) {
@@ -275,7 +407,7 @@ public class TripDetailsActivity extends AppCompatActivity {
         });
 
         List<GpsPoint> gpsPoints = trip.getGpsPoints();
-        List<Poi> pois = trip.getPois();
+        List<Poi>      pois      = trip.getPois();
 
         Collections.sort(gpsPoints, (a, b) -> Long.compare(a.getTimestamp(), b.getTimestamp()));
 
@@ -322,7 +454,7 @@ public class TripDetailsActivity extends AppCompatActivity {
     }
 
     // =========================================================================
-    // Marqueurs
+    // Marqueurs POI
     // =========================================================================
 
     private BitmapDrawable createPoiMarker() {
@@ -345,126 +477,9 @@ public class TripDetailsActivity extends AppCompatActivity {
         return new BitmapDrawable(getResources(), bmp);
     }
 
-    private BitmapDrawable createPhotoMarkerIcon(Bitmap photo) {
-        float density = getResources().getDisplayMetrics().density;
-        int size = Math.round(56 * density);
-        int border = Math.round(4 * density);
-        Bitmap result = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888);
-        Canvas canvas = new Canvas(result);
-        Paint paintBg = new Paint(Paint.ANTI_ALIAS_FLAG);
-        paintBg.setColor(Color.WHITE);
-        canvas.drawRoundRect(0, 0, size, size, 8 * density, 8 * density, paintBg);
-        Bitmap scaled = Bitmap.createScaledBitmap(photo, size - border * 2, size - border * 2, true);
-        canvas.drawBitmap(scaled, border, border, null);
-        return new BitmapDrawable(getResources(), result);
-    }
-
     // =========================================================================
-    // Photos cloud
+    // Plein écran photo
     // =========================================================================
-
-    private void loadPhotosForMap(Trip trip) {
-        ApiClient.getInstance().getApiService().getUserPhotos("amin")
-                .enqueue(new retrofit2.Callback<java.util.List<java.util.Map<String, Object>>>() {
-                    @Override
-                    public void onResponse(retrofit2.Call<java.util.List<java.util.Map<String, Object>>> call,
-                                           retrofit2.Response<java.util.List<java.util.Map<String, Object>>> response) {
-                        if (!response.isSuccessful() || response.body() == null) return;
-                        for (java.util.Map<String, Object> doc : response.body()) {
-                            String docTripId = (String) doc.get("trip_id");
-                            if (!trip.getId().equals(docTripId)) continue;
-                            try {
-                                java.util.Map<String, Object> location =
-                                        (java.util.Map<String, Object>) doc.get("location");
-                                if (location == null) continue;
-                                double lat = ((Number) location.get("latitude")).doubleValue();
-                                double lng = ((Number) location.get("longitude")).doubleValue();
-                                String base64 = (String) doc.get("photo_base64");
-                                String recordedAt = (String) doc.get("recorded_at");
-
-                                runOnUiThread(() -> {
-                                    Marker marker = new Marker(mapView);
-                                    marker.setPosition(new GeoPoint(lat, lng));
-                                    marker.setTitle("📸 Photo souvenir");
-                                    marker.setSnippet(recordedAt != null ? recordedAt : "");
-                                    marker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER);
-                                    if (base64 != null) {
-                                        try {
-                                            byte[] bytes = android.util.Base64.decode(base64, android.util.Base64.DEFAULT);
-                                            Bitmap bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
-                                            marker.setIcon(createPhotoMarkerIcon(bmp));
-                                        } catch (Exception e) { marker.setIcon(createPoiMarker()); }
-                                    } else { marker.setIcon(createPoiMarker()); }
-                                    marker.setOnMarkerClickListener((m, map) -> {
-                                        if (base64 != null) {
-                                            try {
-                                                byte[] bytes = android.util.Base64.decode(base64, android.util.Base64.DEFAULT);
-                                                Bitmap bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
-                                                showFullPhoto(bmp);
-                                            } catch (Exception ignored) {}
-                                        }
-                                        return true;
-                                    });
-                                    mapView.getOverlays().add(marker);
-                                    mapView.invalidate();
-                                });
-                            } catch (Exception ignored) {}
-                        }
-                    }
-                    @Override public void onFailure(retrofit2.Call<java.util.List<java.util.Map<String, Object>>> call, Throwable t) {}
-                });
-    }
-
-    private void loadAndDisplayPhotos(Trip trip) {
-        ApiClient.getInstance().getApiService().getUserPhotos("amin")
-                .enqueue(new retrofit2.Callback<java.util.List<java.util.Map<String, Object>>>() {
-                    @Override
-                    public void onResponse(retrofit2.Call<java.util.List<java.util.Map<String, Object>>> call,
-                                           retrofit2.Response<java.util.List<java.util.Map<String, Object>>> response) {
-                        if (!response.isSuccessful() || response.body() == null) return;
-                        for (java.util.Map<String, Object> doc : response.body()) {
-                            String docTripId = (String) doc.get("trip_id");
-                            if (trip.getId().equals(docTripId)) {
-                                String base64 = (String) doc.get("photo_base64");
-                                if (base64 != null) runOnUiThread(() -> addPhotoToGallery(base64));
-                            }
-                        }
-                    }
-                    @Override public void onFailure(retrofit2.Call<java.util.List<java.util.Map<String, Object>>> call, Throwable t) {}
-                });
-    }
-
-    private void addPhotoToGallery(String base64) {
-        LinearLayout galleryLayout = findViewById(R.id.layoutPhotoGallery);
-        if (galleryLayout == null) return;
-        try {
-            byte[] bytes = android.util.Base64.decode(base64, android.util.Base64.DEFAULT);
-            Bitmap bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
-
-            float density = getResources().getDisplayMetrics().density;
-            int width  = Math.round(200 * density);
-            int height = Math.round(130 * density);
-
-            ImageView img = new ImageView(this);
-            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(width, height);
-            params.setMargins(0, 0, Math.round(10 * density), 0);
-            img.setLayoutParams(params);
-            img.setScaleType(ImageView.ScaleType.CENTER_CROP);
-            img.setImageBitmap(bitmap);
-            img.setClipToOutline(true);
-            img.setOutlineProvider(new android.view.ViewOutlineProvider() {
-                @Override
-                public void getOutline(View view, android.graphics.Outline outline) {
-                    outline.setRoundRect(0, 0, view.getWidth(), view.getHeight(), 8 * density);
-                }
-            });
-            img.setOnClickListener(v -> showFullPhoto(bitmap));
-            galleryLayout.addView(img);
-
-            HorizontalScrollView sv = findViewById(R.id.scrollPhotoGallery);
-            if (sv != null) sv.setVisibility(View.VISIBLE);
-        } catch (Exception ignored) {}
-    }
 
     private void showFullPhoto(Bitmap bitmap) {
         ImageView fullImg = new ImageView(this);
@@ -485,7 +500,7 @@ public class TripDetailsActivity extends AppCompatActivity {
     @Override protected void onPause()  { super.onPause();  if (mapView != null) mapView.onPause(); }
 
     // =========================================================================
-    // Calculs & POI card
+    // Calculs & card POI
     // =========================================================================
 
     private double calculateTotalDistance(Trip trip) {
@@ -507,11 +522,11 @@ public class TripDetailsActivity extends AppCompatActivity {
         cardParams.setMargins(0, 0, 0, Math.round(12*d));
         card.setLayoutParams(cardParams);
 
+        // Ligne nom + type
         LinearLayout headerRow = new LinearLayout(this);
         headerRow.setOrientation(LinearLayout.HORIZONTAL);
         headerRow.setLayoutParams(new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
-
         TextView tvName = new TextView(this);
         tvName.setText(poi.getName());
         tvName.setTextSize(16);
@@ -520,7 +535,6 @@ public class TripDetailsActivity extends AppCompatActivity {
         tvName.setLayoutParams(new LinearLayout.LayoutParams(0,
                 LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
         headerRow.addView(tvName);
-
         TextView tvType = new TextView(this);
         tvType.setText(poi.getType());
         tvType.setTextSize(11);
@@ -530,6 +544,7 @@ public class TripDetailsActivity extends AppCompatActivity {
         headerRow.addView(tvType);
         card.addView(headerRow);
 
+        // Étoiles
         TextView tvRating = new TextView(this);
         tvRating.setText(poi.getRatingStars());
         tvRating.setTextSize(14);
@@ -537,6 +552,7 @@ public class TripDetailsActivity extends AppCompatActivity {
         tvRating.setPadding(0, Math.round(6*d), 0, Math.round(2*d));
         card.addView(tvRating);
 
+        // Commentaire
         if (poi.getComment() != null && !poi.getComment().isEmpty()) {
             TextView tvComment = new TextView(this);
             tvComment.setText(poi.getComment());
@@ -546,6 +562,7 @@ public class TripDetailsActivity extends AppCompatActivity {
             card.addView(tvComment);
         }
 
+        // Photo POI
         String photoB64 = poi.getPhotoBase64();
         if (photoB64 != null && !photoB64.isEmpty()) {
             try {
@@ -573,6 +590,7 @@ public class TripDetailsActivity extends AppCompatActivity {
             } catch (Exception ignored) {}
         }
 
+        // Coordonnées
         TextView tvCoords = new TextView(this);
         tvCoords.setText("GPS : " + String.format("%.5f", poi.getLat())
                 + ", " + String.format("%.5f", poi.getLng()));

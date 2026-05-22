@@ -1,32 +1,156 @@
-<ScrollView xmlns:android="http://schemas.android.com/apk/res/android" android:layout_width="match_parent" android:layout_height="match_parent" android:background="#0F0F1A">
-    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:padding="20dp">
-        <!--  ═══ EN-TÊTE ═══  -->
-        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Détail du voyage" android:textSize="26sp" android:textStyle="bold" android:textColor="#FFFFFF" android:layout_marginBottom="12dp"/>
-        <TextView android:id="@+id/tvTripName" android:layout_width="wrap_content" android:layout_height="wrap_content" android:textSize="20sp" android:textStyle="bold" android:textColor="#A89CFF" android:layout_marginBottom="4dp"/>
-        <TextView android:id="@+id/tvTripDate" android:layout_width="wrap_content" android:layout_height="wrap_content" android:textSize="13sp" android:textColor="#777799" android:layout_marginBottom="4dp"/>
-        <TextView android:id="@+id/tvTripDescription" android:layout_width="wrap_content" android:layout_height="wrap_content" android:textSize="14sp" android:textColor="#AAAACC" android:layout_marginBottom="16dp"/>
-        <!--  ═══ STATS ═══  -->
-        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:background="#1E1E35" android:padding="16dp" android:layout_marginBottom="20dp">
-            <TextView android:id="@+id/tvStats" android:layout_width="wrap_content" android:layout_height="wrap_content" android:textSize="14sp" android:textColor="#A89CFF" android:textStyle="bold"/>
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#0F0F1A">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="20dp">
+
+        <!-- ═══ EN-TÊTE ═══ -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Détail du voyage"
+            android:textSize="26sp"
+            android:textStyle="bold"
+            android:textColor="#FFFFFF"
+            android:layout_marginBottom="12dp" />
+
+        <TextView
+            android:id="@+id/tvTripName"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textSize="20sp"
+            android:textStyle="bold"
+            android:textColor="#A89CFF"
+            android:layout_marginBottom="4dp" />
+
+        <TextView
+            android:id="@+id/tvTripDate"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textSize="13sp"
+            android:textColor="#777799"
+            android:layout_marginBottom="4dp" />
+
+        <TextView
+            android:id="@+id/tvTripDescription"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textSize="14sp"
+            android:textColor="#AAAACC"
+            android:layout_marginBottom="16dp" />
+
+        <!-- ═══ STATS ═══ -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="#1E1E35"
+            android:padding="16dp"
+            android:layout_marginBottom="16dp">
+            <TextView
+                android:id="@+id/tvStats"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textSize="14sp"
+                android:textColor="#A89CFF"
+                android:textStyle="bold" />
         </LinearLayout>
-        <!--  ═══ SECTION POI ═══  -->
-        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Points d'intérêt" android:textSize="18sp" android:textStyle="bold" android:textColor="#FFFFFF" android:layout_marginBottom="12dp"/>
-        <!--  Conteneur dynamique POI (cards générées en Java)  -->
-        <LinearLayout android:id="@+id/layoutPois" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:layout_marginBottom="20dp"/>
-        <!--  ═══ SECTION PHOTOS ═══  -->
-        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Photos du voyage" android:textSize="18sp" android:textStyle="bold" android:textColor="#FFFFFF" android:layout_marginBottom="12dp"/>
+
+        <!-- ═══ BOUTON PARTAGE QR ═══
+             Placé ici dans le XML → plus de création dynamique en Java
+             → élimine le doublon de POI -->
+        <Button
+            android:id="@+id/btnShareTrip"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="🔗  Partager ce voyage (QR code)"
+            android:textColor="#FFFFFF"
+            android:backgroundTint="#6C63FF"
+            android:layout_marginBottom="20dp"
+            android:layout_marginTop="0dp" />
+
+        <!-- ═══ SECTION POI ═══ -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Points d'intérêt"
+            android:textSize="18sp"
+            android:textStyle="bold"
+            android:textColor="#FFFFFF"
+            android:layout_marginBottom="12dp" />
+
+        <!-- Conteneur dynamique POI — rempli par Java -->
+        <LinearLayout
+            android:id="@+id/layoutPois"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:layout_marginBottom="20dp" />
+
+        <!-- ═══ SECTION PHOTOS ═══ -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Photos du voyage"
+            android:textSize="18sp"
+            android:textStyle="bold"
+            android:textColor="#FFFFFF"
+            android:layout_marginBottom="12dp" />
+
         <!--
-                    FORMAT PAYSAGE CARTE POSTALE :
-                    HorizontalScrollView → LinearLayout hauteur 140dp fixe
-                    Les ImageView créés en Java font 200×140dp + scaleType=CENTER_CROP
-                 -->
-        <HorizontalScrollView android:id="@+id/scrollPhotoGallery" android:layout_width="match_parent" android:layout_height="140dp" android:layout_marginBottom="20dp" android:scrollbars="none" android:visibility="gone">
-            <LinearLayout android:id="@+id/layoutPhotoGallery" android:layout_width="wrap_content" android:layout_height="140dp" android:orientation="horizontal" android:gravity="center_vertical"/>
+            Format adaptatif : hauteur fixe 130dp, largeur calculée en Java
+            selon le ratio de chaque photo (paysage ou portrait)
+        -->
+        <HorizontalScrollView
+            android:id="@+id/scrollPhotoGallery"
+            android:layout_width="match_parent"
+            android:layout_height="140dp"
+            android:layout_marginBottom="20dp"
+            android:scrollbars="none"
+            android:visibility="gone">
+
+            <LinearLayout
+                android:id="@+id/layoutPhotoGallery"
+                android:layout_width="wrap_content"
+                android:layout_height="140dp"
+                android:orientation="horizontal"
+                android:gravity="center_vertical" />
         </HorizontalScrollView>
-        <!--  ═══ CARTE DU PARCOURS ═══  -->
-        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Carte du parcours" android:textSize="18sp" android:textStyle="bold" android:textColor="#FFFFFF" android:layout_marginBottom="8dp"/>
-        <org.osmdroid.views.MapView android:id="@+id/mapView" android:layout_width="match_parent" android:layout_height="300dp" android:layout_marginBottom="16dp" android:clickable="true" android:focusable="true"/>
-        <!--  ═══ BATTERIE ═══  -->
-        <TextView android:id="@+id/tvBatteryDetail" android:layout_width="match_parent" android:layout_height="wrap_content" android:textSize="12sp" android:textColor="#555570" android:gravity="center" android:padding="10dp" android:background="#1A1A2E" android:layout_marginTop="4dp"/>
+
+        <!-- ═══ CARTE DU PARCOURS ═══ -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Carte du parcours"
+            android:textSize="18sp"
+            android:textStyle="bold"
+            android:textColor="#FFFFFF"
+            android:layout_marginBottom="8dp" />
+
+        <org.osmdroid.views.MapView
+            android:id="@+id/mapView"
+            android:layout_width="match_parent"
+            android:layout_height="300dp"
+            android:layout_marginBottom="16dp"
+            android:clickable="true"
+            android:focusable="true" />
+
+        <!-- ═══ BATTERIE ═══ -->
+        <TextView
+            android:id="@+id/tvBatteryDetail"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textSize="12sp"
+            android:textColor="#555570"
+            android:gravity="center"
+            android:padding="10dp"
+            android:background="#1A1A2E"
+            android:layout_marginTop="4dp" />
+
     </LinearLayout>
 </ScrollView>
