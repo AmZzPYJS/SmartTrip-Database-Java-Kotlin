@@ -1,19 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!--
-    AndroidManifest.xml — SmartTrip
-
-    MODIFICATIONS par rapport à l'original :
-    - Ajout de ActiveTripActivity (voyage en cours)
-    - Ajout de SettingsActivity (paramètres)
-    - Ajout de la permission BATTERY_STATS (lecture niveau batterie)
-
-    NOTE : Les permissions GPS (ACCESS_FINE_LOCATION, ACCESS_COARSE_LOCATION)
-    seront nécessaires quand tu intègreras le vrai GPS.
-    Pour l'instant la collecte est simulée, donc pas besoin.
--->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="com.example.smarttrip">
 
+    <!-- Permissions existantes -->
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
     <uses-permission android:name="android.permission.INTERNET" />
@@ -21,6 +10,18 @@
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
 
+    <!-- ── NOUVELLES permissions pour le GPS en arrière-plan ─────────────── -->
+    <!-- Obligatoire Android 9+ pour les ForegroundService -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <!-- Obligatoire Android 14+ pour les services de localisation -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+    <!-- GPS en arrière-plan (écran éteint, app minimisée) -->
+    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
+    <!-- Empêche le téléphone de mettre le CPU en veille pendant la collecte -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <!-- Envoyer des notifications (obligatoire Android 13+) -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- ──────────────────────────────────────────────────────────────────── -->
 
     <application
         android:allowBackup="true"
@@ -31,7 +32,6 @@
         android:theme="@style/Theme.SmartTrip"
         android:usesCleartextTraffic="true">
 
-        <!-- Splash Screen (launcher) -->
         <activity
             android:name=".SplashActivity"
             android:exported="true">
@@ -41,22 +41,21 @@
             </intent-filter>
         </activity>
 
-        <!-- Écran principal -->
         <activity android:name=".MainActivity" />
-
-        <!-- Historique des voyages -->
         <activity android:name=".TripsActivity" />
-
-        <!-- Détail d'un voyage -->
         <activity android:name=".TripDetailsActivity" />
-
-        <!-- Voyage en cours (NOUVEAU) -->
         <activity android:name=".ActiveTripActivity" />
-
-        <!-- Paramètres (NOUVEAU) -->
         <activity android:name=".SettingsActivity" />
 
-        <!-- Après les autres <activity>, avant </application> -->
+        <!-- ── ForegroundService GPS ──────────────────────────────────────── -->
+        <!-- foregroundServiceType="location" obligatoire Android 10+ -->
+        <service
+            android:name=".GpsTrackingService"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="location" />
+        <!-- ──────────────────────────────────────────────────────────────── -->
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="com.example.smarttrip.fileprovider"
