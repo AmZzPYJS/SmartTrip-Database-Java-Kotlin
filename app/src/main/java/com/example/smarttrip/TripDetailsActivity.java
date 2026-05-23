@@ -198,7 +198,11 @@ public class TripDetailsActivity extends AppCompatActivity {
 
                             // Filtre strict sur le trip_id courant
                             String docTripId = (String) doc.get("trip_id");
-                            if (docTripId == null || !docTripId.equals(currentTripId)) continue;
+                            if (docTripId == null) continue;
+
+                            if (!docTripId.trim().equalsIgnoreCase(currentTripId.trim())) {
+                                continue;
+                            }
 
                             String base64     = (String) doc.get("photo_base64");
                             String recordedAt = (String) doc.get("recorded_at");
