@@ -47,6 +47,9 @@ import java.util.Set;
 public class TripDetailsActivity extends AppCompatActivity {
 
     private MapView mapView;
+
+    private final Set<String> usedMarkerPositions = new HashSet<>();
+
     private boolean mapReady = false; // garde-fou : photos ajoutées seulement après setupMap()
     private static final String API_BASE_URL = "https://smarttrip-api.onrender.com";
 
@@ -102,6 +105,22 @@ public class TripDetailsActivity extends AppCompatActivity {
         setupMap(trip);
     }
 
+    private GeoPoint offsetIfDuplicate(GeoPoint original) {
+        String key = original.getLatitude() + "," + original.getLongitude();
+
+        if (usedMarkerPositions.contains(key)) {
+            double offset = (Math.random() - 0.5) * 0.00005; // ≈ 5 mètres
+            return new GeoPoint(
+                    original.getLatitude() + offset,
+                    original.getLongitude() + offset
+            );
+        }
+
+        usedMarkerPositions.add(key);
+        return original;
+    }
+
+
     // =========================================================================
     // Carte — photos chargées DANS le callback mapView.post()
     // =========================================================================
@@ -141,7 +160,9 @@ public class TripDetailsActivity extends AppCompatActivity {
 
         for (Poi poi : pois) {
             Marker marker = new Marker(mapView);
-            marker.setPosition(new GeoPoint(poi.getLat(), poi.getLng()));
+            GeoPoint pos = offsetIfDuplicate(new GeoPoint(poi.getLat(), poi.getLng()));
+            marker.setPosition(pos);
+
             marker.setTitle(poi.getName());
             marker.setSnippet(poi.getType() + " • " + poi.getRatingStars()
                     + (poi.getComment() != null && !poi.getComment().isEmpty()
@@ -298,7 +319,9 @@ public class TripDetailsActivity extends AppCompatActivity {
 
     private void addPhotoMarkerToMap(String base64, double lat, double lng, String recordedAt) {
         Marker marker = new Marker(mapView);
-        marker.setPosition(new GeoPoint(lat, lng));
+        GeoPoint pos = offsetIfDuplicate(new GeoPoint(lat, lng));
+        marker.setPosition(pos);
+
         marker.setTitle("📸 Photo souvenir");
         marker.setSnippet(recordedAt != null ? recordedAt : "");
         marker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM);
