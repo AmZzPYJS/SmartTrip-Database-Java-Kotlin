@@ -19,24 +19,13 @@
         android:background="#6C63FF">
 
         <!-- Logo SVG remplacé par un cercle stylé avec emoji -->
-        <FrameLayout
-            android:layout_width="72dp"
-            android:layout_height="72dp"
-            android:layout_marginBottom="14dp">
 
-            <!-- Cercle fond blanc semi-transparent -->
-            <View
-                android:layout_width="72dp"
-                android:layout_height="72dp"
-                android:background="@drawable/ic_launcher_background" />
-
-            <TextView
-                android:layout_width="match_parent"
-                android:layout_height="match_parent"
-                android:text="🗺️"
-                android:textSize="38sp"
-                android:gravity="center" />
-        </FrameLayout>
+        <ImageView
+            android:layout_width="80dp"
+            android:layout_height="80dp"
+            android:src="@drawable/ic_traveler"
+            android:scaleType="fitCenter"
+            android:layout_marginBottom="14dp" />
 
         <TextView
             android:layout_width="wrap_content"

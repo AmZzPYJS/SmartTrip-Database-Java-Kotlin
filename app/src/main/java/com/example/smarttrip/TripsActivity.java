@@ -31,11 +31,16 @@ public class TripsActivity extends AppCompatActivity implements TripAdapter.OnTr
     private TextView tvEmpty;
     private List<Trip> voyages = new ArrayList<>();
 
-    private Map<String, List<GpsPoint>> gpsByTrip    = new HashMap<>();
-    private Map<String, List<Poi>>      poisByTrip   = new HashMap<>();
-    private Map<String, String>         nameByTrip   = new HashMap<>();
-    private Map<String, String>         dateByTrip   = new HashMap<>();
+    private Map<String, List<GpsPoint>> gpsByTrip   = new HashMap<>();
+    private Map<String, List<Poi>>      poisByTrip  = new HashMap<>();
+    private Map<String, String>         nameByTrip  = new HashMap<>();
+    private Map<String, String>         dateByTrip  = new HashMap<>();
     private Map<String, String>         poiDateByTrip = new HashMap<>();
+
+    // ── FIX DOUBLON POI : on déduplique par (tripId + name + lat + lng) ──────
+    // Sans ce Set, si MongoDB contient 2 documents POI identiques (tests répétés),
+    // ils s'affichent 2 fois dans la liste.
+    private Set<String> seenPoiKeys = new HashSet<>();
 
     private int loadingsRemaining = 2;
 
@@ -61,6 +66,7 @@ public class TripsActivity extends AppCompatActivity implements TripAdapter.OnTr
         nameByTrip.clear();
         dateByTrip.clear();
         poiDateByTrip.clear();
+        seenPoiKeys.clear(); // reset à chaque chargement
         voyages.clear();
         adapter.notifyDataSetChanged();
         loadingsRemaining = 2;
@@ -71,25 +77,19 @@ public class TripsActivity extends AppCompatActivity implements TripAdapter.OnTr
 
     @Override
     public void onTripClick(Trip trip, int position) {
-        // Clic simple → détail
         Intent intent = new Intent(this, TripDetailsActivity.class);
         intent.putExtra("trip", trip);
         startActivity(intent);
     }
 
-    // Appel depuis TripAdapter pour appui long
     public void onTripLongClick(Trip trip, int position) {
         String[] options = {"Voir le détail", "Partager", "Supprimer"};
         new androidx.appcompat.app.AlertDialog.Builder(this)
                 .setTitle(trip.getTitle())
                 .setItems(options, (dialog, which) -> {
-                    if (which == 0) {
-                        onTripClick(trip, position);
-                    } else if (which == 1) {
-                        shareTrip(trip);
-                    } else {
-                        confirmDeleteTrip(trip, position);
-                    }
+                    if (which == 0) onTripClick(trip, position);
+                    else if (which == 1) shareTrip(trip);
+                    else confirmDeleteTrip(trip, position);
                 })
                 .show();
     }
@@ -100,7 +100,6 @@ public class TripsActivity extends AppCompatActivity implements TripAdapter.OnTr
                 + "📍 " + trip.getGpsPoints().size() + " points GPS\n"
                 + "⭐ " + trip.getPois().size() + " points d'intérêt\n"
                 + "Enregistré avec SmartTrip — Carnet de voyage intelligent";
-
         Intent shareIntent = new Intent(Intent.ACTION_SEND);
         shareIntent.setType("text/plain");
         shareIntent.putExtra(Intent.EXTRA_TEXT, text);
@@ -129,8 +128,7 @@ public class TripsActivity extends AppCompatActivity implements TripAdapter.OnTr
                                 adapter.notifyItemRangeChanged(position, voyages.size());
                                 Toast.makeText(TripsActivity.this,
                                         "Voyage supprimé ✓", Toast.LENGTH_SHORT).show();
-                                if (voyages.isEmpty())
-                                    tvEmpty.setVisibility(View.VISIBLE);
+                                if (voyages.isEmpty()) tvEmpty.setVisibility(View.VISIBLE);
                             } else {
                                 Toast.makeText(TripsActivity.this,
                                         "Erreur suppression (code " + response.code() + ")",
@@ -164,7 +162,7 @@ public class TripsActivity extends AppCompatActivity implements TripAdapter.OnTr
                     @Override
                     public void onFailure(Call<List<Map<String, Object>>> call, Throwable t) {
                         Toast.makeText(TripsActivity.this,
-                                "Erreur réseau GPS : " + t.getMessage(), Toast.LENGTH_SHORT).show();
+                                "Erreur GPS : " + t.getMessage(), Toast.LENGTH_SHORT).show();
                         onLoadingComplete();
                     }
                 });
@@ -192,18 +190,14 @@ public class TripsActivity extends AppCompatActivity implements TripAdapter.OnTr
         try {
             String tripId = (String) doc.get("trip_id");
             if (tripId == null) tripId = "trip_unknown";
-
             Map<String, Object> loc = (Map<String, Object>) doc.get("location");
             double lat = ((Number) loc.get("latitude")).doubleValue();
             double lng = ((Number) loc.get("longitude")).doubleValue();
             String recordedAt = (String) doc.get("recorded_at");
             long ts = parseTimestamp(recordedAt);
-
             if (!gpsByTrip.containsKey(tripId)) gpsByTrip.put(tripId, new ArrayList<>());
             gpsByTrip.get(tripId).add(new GpsPoint(lat, lng, ts));
-
             if (!dateByTrip.containsKey(tripId)) dateByTrip.put(tripId, formatDate(recordedAt));
-
             String name = (String) doc.get("trip_name");
             if (!nameByTrip.containsKey(tripId) && name != null && !name.isEmpty())
                 nameByTrip.put(tripId, name);
@@ -221,12 +215,30 @@ public class TripsActivity extends AppCompatActivity implements TripAdapter.OnTr
             int    rating  = ((Number) doc.get("rating")).intValue();
             String comment = (String) doc.get("comment");
 
+            // ── FIX DOUBLON : clé unique = tripId + name + lat + lng ─────────
+            // Si MongoDB contient 2 documents identiques (tests répétés),
+            // on n'insère qu'une seule fois dans la liste.
             Map<String, Object> loc = (Map<String, Object>) doc.get("location");
             double lat = ((Number) loc.get("latitude")).doubleValue();
             double lng = ((Number) loc.get("longitude")).doubleValue();
 
+            String dedupeKey = tripId + "|" + name + "|"
+                    + String.format(Locale.US, "%.5f", lat) + "|"
+                    + String.format(Locale.US, "%.5f", lng);
+
+            if (seenPoiKeys.contains(dedupeKey)) return; // doublon → ignorer
+            seenPoiKeys.add(dedupeKey);
+            // ──────────────────────────────────────────────────────────────────
+
+            // Récupérer photo_base64 si présente dans le document MongoDB
+            String photoBase64 = (String) doc.get("photo_base64");
+
             if (!poisByTrip.containsKey(tripId)) poisByTrip.put(tripId, new ArrayList<>());
-            poisByTrip.get(tripId).add(new Poi(name, type, lat, lng, rating, comment, ""));
+            Poi poi = new Poi(name, type, lat, lng, rating, comment, "");
+            if (photoBase64 != null && !photoBase64.isEmpty()) {
+                poi.setPhotoBase64(photoBase64);
+            }
+            poisByTrip.get(tripId).add(poi);
 
             String tripName = (String) doc.get("trip_name");
             if (!nameByTrip.containsKey(tripId) && tripName != null && !tripName.isEmpty())
@@ -235,6 +247,7 @@ public class TripsActivity extends AppCompatActivity implements TripAdapter.OnTr
             String recordedAt = (String) doc.get("recorded_at");
             if (!poiDateByTrip.containsKey(tripId) && recordedAt != null)
                 poiDateByTrip.put(tripId, formatDate(recordedAt));
+
         } catch (Exception ignored) {}
     }
 
@@ -247,30 +260,23 @@ public class TripsActivity extends AppCompatActivity implements TripAdapter.OnTr
         runOnUiThread(() -> {
             progressBar.setVisibility(View.GONE);
             voyages.clear();
-
             Set<String> allIds = new HashSet<>();
             allIds.addAll(gpsByTrip.keySet());
             allIds.addAll(poisByTrip.keySet());
-
             for (String tripId : allIds) {
                 List<GpsPoint> points = gpsByTrip.containsKey(tripId)
                         ? gpsByTrip.get(tripId) : new ArrayList<>();
                 List<Poi> pois = poisByTrip.containsKey(tripId)
                         ? poisByTrip.get(tripId) : new ArrayList<>();
-
                 if (points.isEmpty() && pois.isEmpty()) continue;
-
                 String date = dateByTrip.containsKey(tripId)
                         ? dateByTrip.get(tripId)
                         : poiDateByTrip.getOrDefault(tripId, "Date inconnue");
-
                 String name = nameByTrip.containsKey(tripId)
                         ? nameByTrip.get(tripId)
                         : "Voyage du " + date;
-
                 voyages.add(new Trip(tripId, name, date, "Voyage cloud", false, points, pois));
             }
-
             Collections.sort(voyages, (a, b) -> b.getId().compareTo(a.getId()));
             tvEmpty.setVisibility(voyages.isEmpty() ? View.VISIBLE : View.GONE);
             adapter.notifyDataSetChanged();

@@ -236,13 +236,10 @@ public class SettingsActivity extends AppCompatActivity {
         addSectionTitle(content, "ℹ️  INFORMATIONS", d);
 
         LinearLayout infoCard = newCard(d);
-        addInfoRow(infoCard, "Application", "SmartTrip", d);
-        addInfoRow(infoCard, "Version", "1.0 — L3 UVSQ 2026", d);
-        addInfoRow(infoCard, "Backend", "FastAPI — Render.com", d);
-        addInfoRow(infoCard, "Base de données", "MongoDB Atlas (NoSQL)", d);
-        addInfoRow(infoCard, "Stockage local", "Room (SQLite)", d);
-        addInfoRow(infoCard, "Sync différée", "WorkManager", d);
-        addInfoRow(infoCard, "Cartographie", "OSMDroid / OpenStreetMap", d);
+        addInfoRow(infoCard, "Mobile UI/UX Engineer ", "Moussa NGUETTE", d);
+        addInfoRow(infoCard, "Android Software Architect ", "Amîn MEZOUER", d);
+        addInfoRow(infoCard, "Backend & Cloud Engineer", "Abdallah Benzoubir", d);
+        addInfoRow(infoCard, "Application QA & Support Specialist ", "Papa Amath BODIAN", d);
         content.addView(infoCard);
 
         root.addView(scrollView);
