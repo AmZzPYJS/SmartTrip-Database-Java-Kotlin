@@ -40,79 +40,67 @@ import org.osmdroid.views.overlay.Polyline;
 import java.io.File;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Set;
+import java.util.Map;
 
 public class TripDetailsActivity extends AppCompatActivity {
 
-    private MapView mapView;
-    private boolean mapReady = false;
-
+    private static final String TAG = "TripDetailsActivity";
+    private static final String USER_ID = "amin";
     private static final String API_BASE_URL = "https://travel-tracker-backend-j5q0.onrender.com";
 
-    private final Set<String> seenPhotoIds = new HashSet<>();
+    private MapView mapView;
+    private boolean mapReady = false;
+    private Trip currentTrip;
+
+    private final HashSet<String> seenPhotoIds = new HashSet<>();
+    private final Map<String, List<Bitmap>> photosByPoiId = new HashMap<>();
+    private final List<Bitmap> freePhotoBitmaps = new ArrayList<>();
+    private LinearLayout layoutPoisContainer;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-
-        Context ctx = getApplicationContext();
-
-        Configuration.getInstance().load(
-                ctx,
-                PreferenceManager.getDefaultSharedPreferences(ctx)
-        );
+        Context context = getApplicationContext();
+        Configuration.getInstance().load(context, PreferenceManager.getDefaultSharedPreferences(context));
         Configuration.getInstance().setUserAgentValue(getPackageName());
         Configuration.getInstance().setOsmdroidBasePath(getFilesDir());
-        Configuration.getInstance().setOsmdroidTileCache(
-                new File(getCacheDir(), "osmdroid")
-        );
-
+        Configuration.getInstance().setOsmdroidTileCache(new File(getCacheDir(), "osmdroid"));
         setContentView(R.layout.activity_trip_details);
 
-        Trip trip = (Trip) getIntent().getSerializableExtra("trip");
+        currentTrip = (Trip) getIntent().getSerializableExtra("trip");
+        if (currentTrip == null) { finish(); return; }
 
-        if (trip == null) {
-            finish();
-            return;
-        }
-
-        TextView tvTripName = findViewById(R.id.tvTripName);
-        TextView tvTripDate = findViewById(R.id.tvTripDate);
+        TextView tvTripName        = findViewById(R.id.tvTripName);
+        TextView tvTripDate        = findViewById(R.id.tvTripDate);
         TextView tvTripDescription = findViewById(R.id.tvTripDescription);
-        TextView tvStats = findViewById(R.id.tvStats);
-        LinearLayout layoutPois = findViewById(R.id.layoutPois);
-        TextView tvBattery = findViewById(R.id.tvBatteryDetail);
+        TextView tvStats           = findViewById(R.id.tvStats);
+        TextView tvBattery         = findViewById(R.id.tvBatteryDetail);
+        layoutPoisContainer        = findViewById(R.id.layoutPois);
 
-        tvTripName.setText(trip.getTitle());
-        tvTripDate.setText(trip.getDate());
-        tvTripDescription.setText(trip.getDescription());
+        tvTripName.setText(currentTrip.getTitle());
+        tvTripDate.setText(currentTrip.getDate());
+        tvTripDescription.setText(currentTrip.getDescription());
+        updateStats(tvStats, currentTrip);
 
+        layoutPoisContainer.removeAllViews();
+        for (Poi poi : currentTrip.getPois()) addPoiView(layoutPoisContainer, poi);
+
+        Button btnShare = findViewById(R.id.btnShareTrip);
+        if (btnShare != null) btnShare.setOnClickListener(v -> showQrDialog(currentTrip));
+
+        tvBattery.setText(BatteryHelper.getStatusMessage(this));
+        setupMap(currentTrip);
+    }
+
+    private void updateStats(TextView tvStats, Trip trip) {
         int nbGps = trip.getGpsPoints().size();
         int nbPoi = trip.getPois().size();
         double distanceKm = calculateTotalDistance(trip) / 1000.0;
-
-        tvStats.setText(
-                nbGps + " points GPS • "
-                        + nbPoi + " POI • "
-                        + String.format(java.util.Locale.FRANCE, "%.1f", distanceKm)
-                        + " km parcourus"
-        );
-
-        for (Poi poi : trip.getPois()) {
-            addPoiView(layoutPois, poi);
-        }
-
-        Button btnShare = findViewById(R.id.btnShareTrip);
-
-        if (btnShare != null) {
-            btnShare.setOnClickListener(v -> showQrDialog(trip));
-        }
-
-        tvBattery.setText(BatteryHelper.getStatusMessage(this));
-
-        setupMap(trip);
+        tvStats.setText(nbGps + " points GPS • " + nbPoi + " POI • "
+                + String.format(java.util.Locale.FRANCE, "%.1f", distanceKm) + " km parcourus");
     }
 
     // =========================================================================
@@ -121,110 +109,46 @@ public class TripDetailsActivity extends AppCompatActivity {
 
     private void setupMap(Trip trip) {
         mapView = findViewById(R.id.mapView);
-
         mapView.setTileSource(TileSourceFactory.MAPNIK);
         mapView.setMultiTouchControls(true);
-
-        // Meilleure esthétique : on retire les gros boutons + / -
         mapView.setBuiltInZoomControls(false);
         mapView.setTilesScaledToDpi(true);
         mapView.setMinZoomLevel(3.0);
         mapView.setMaxZoomLevel(20.0);
-
         mapView.setHorizontalMapRepetitionEnabled(false);
         mapView.setVerticalMapRepetitionEnabled(false);
 
-        mapView.setOnTouchListener((v, event) -> {
+        mapView.setOnTouchListener((view, event) -> {
             switch (event.getAction()) {
                 case MotionEvent.ACTION_DOWN:
                 case MotionEvent.ACTION_MOVE:
-                    v.getParent().requestDisallowInterceptTouchEvent(true);
-                    break;
-
+                    view.getParent().requestDisallowInterceptTouchEvent(true); break;
                 case MotionEvent.ACTION_UP:
                 case MotionEvent.ACTION_CANCEL:
-                    v.getParent().requestDisallowInterceptTouchEvent(false);
-                    break;
+                    view.getParent().requestDisallowInterceptTouchEvent(false); break;
             }
-
             return false;
         });
 
         List<GpsPoint> gpsPoints = trip.getGpsPoints();
         List<Poi> pois = trip.getPois();
+        Collections.sort(gpsPoints, (a, b) -> Long.compare(a.getTimestamp(), b.getTimestamp()));
 
-        Collections.sort(
-                gpsPoints,
-                (a, b) -> Long.compare(a.getTimestamp(), b.getTimestamp())
-        );
-
-        // Trajet
         if (gpsPoints.size() >= 2) {
             List<GeoPoint> routePoints = new ArrayList<>();
-
-            for (GpsPoint p : gpsPoints) {
-                routePoints.add(new GeoPoint(p.getLat(), p.getLng()));
-            }
-
+            for (GpsPoint point : gpsPoints) routePoints.add(new GeoPoint(point.getLat(), point.getLng()));
             Polyline polyline = new Polyline(mapView);
             polyline.setPoints(routePoints);
             polyline.getOutlinePaint().setColor(Color.parseColor("#6C63FF"));
             polyline.getOutlinePaint().setStrokeWidth(8f);
-
             mapView.getOverlays().add(polyline);
         }
 
-        // POI sur la carte : photo si disponible, sinon marker moderne
-        for (Poi poi : pois) {
-            Marker marker = new Marker(mapView);
+        for (Poi poi : pois) addPoiMarkerToMap(poi);
 
-            marker.setPosition(new GeoPoint(poi.getLat(), poi.getLng()));
-            marker.setTitle(poi.getName());
-            marker.setSnippet(poi.getType() + " • " + poi.getRatingStars());
-            marker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM);
-
-            String poiPhotoBase64 = poi.getPhotoBase64();
-
-            if (poiPhotoBase64 != null && !poiPhotoBase64.isEmpty()) {
-                try {
-                    byte[] bytes = android.util.Base64.decode(
-                            poiPhotoBase64,
-                            android.util.Base64.DEFAULT
-                    );
-
-                    Bitmap bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
-
-                    if (bmp != null) {
-                        marker.setIcon(createPoiPhotoMarkerIcon(bmp));
-                    } else {
-                        marker.setIcon(createModernPoiMarker());
-                    }
-
-                } catch (Exception e) {
-                    marker.setIcon(createModernPoiMarker());
-                }
-            } else {
-                marker.setIcon(createModernPoiMarker());
-            }
-
-            marker.setOnMarkerClickListener((m, map) -> {
-                showPoiDialog(poi);
-                return true;
-            });
-
-            mapView.getOverlays().add(marker);
-        }
-
-        // Points utilisés pour centrer la carte
         List<GeoPoint> allPoints = new ArrayList<>();
-
-        for (GpsPoint p : gpsPoints) {
-            allPoints.add(new GeoPoint(p.getLat(), p.getLng()));
-        }
-
-        for (Poi poi : pois) {
-            allPoints.add(new GeoPoint(poi.getLat(), poi.getLng()));
-        }
+        for (GpsPoint point : gpsPoints) allPoints.add(new GeoPoint(point.getLat(), point.getLng()));
+        for (Poi poi : pois) allPoints.add(new GeoPoint(poi.getLat(), poi.getLng()));
 
         if (allPoints.isEmpty()) {
             mapView.getController().setZoom(10.0);
@@ -233,261 +157,329 @@ public class TripDetailsActivity extends AppCompatActivity {
             mapView.getController().setZoom(18.0);
             mapView.getController().setCenter(allPoints.get(0));
         } else {
-            if (!gpsPoints.isEmpty()) {
-                mapView.getController().setCenter(
-                        new GeoPoint(
-                                gpsPoints.get(0).getLat(),
-                                gpsPoints.get(0).getLng()
-                        )
-                );
-            }
-
             BoundingBox bbox = BoundingBox.fromGeoPoints(allPoints);
-
             mapView.post(() -> mapView.zoomToBoundingBox(bbox, true, 80));
         }
 
-        // Photos souvenirs sur la carte après rendu de la map
         mapView.post(() -> {
             mapReady = true;
-            loadPhotosOnce(trip);
+            loadPhotosOnce(currentTrip);
         });
     }
 
+    private void addPoiMarkerToMap(Poi poi) {
+        Marker marker = new Marker(mapView);
+        marker.setPosition(new GeoPoint(poi.getLat(), poi.getLng()));
+        marker.setTitle(poi.getName());
+        marker.setSnippet(poi.getType() + " • " + poi.getRatingStars());
+        marker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM);
+        Bitmap poiBitmap = decodeBitmap(poi.getPhotoBase64());
+        marker.setIcon(poiBitmap != null ? createPoiPhotoMarkerIcon(poiBitmap) : createModernPoiMarker());
+        marker.setOnMarkerClickListener((m, map) -> { showPoiDialog(poi); return true; });
+        mapView.getOverlays().add(marker);
+    }
+
     // =========================================================================
-    // Photos souvenirs cloud
+    // Photos cloud
     // =========================================================================
 
     private void loadPhotosOnce(Trip trip) {
         final String currentTripId = trip.getId();
-
-        ApiClient.getInstance().getApiService().getUserPhotos("amin")
+        ApiClient.getInstance().getApiService().getUserPhotos(USER_ID)
                 .enqueue(new retrofit2.Callback<java.util.List<java.util.Map<String, Object>>>() {
                     @Override
                     public void onResponse(
                             retrofit2.Call<java.util.List<java.util.Map<String, Object>>> call,
-                            retrofit2.Response<java.util.List<java.util.Map<String, Object>>> response
-                    ) {
-                        if (!response.isSuccessful() || response.body() == null) {
-                            return;
+                            retrofit2.Response<java.util.List<java.util.Map<String, Object>>> response) {
+                        if (!response.isSuccessful() || response.body() == null) return;
+                        for (Map<String, Object> doc : response.body()) {
+                            parsePhotoDocForDisplay(currentTripId, doc);
                         }
-
-                        for (java.util.Map<String, Object> doc : response.body()) {
-                            String docTripId = (String) doc.get("trip_id");
-
-                            if (docTripId == null || !docTripId.equals(currentTripId)) {
-                                continue;
-                            }
-
-                            String base64 = (String) doc.get("photo_base64");
-                            String recordedAt = (String) doc.get("recorded_at");
-
-                            String dedupe = recordedAt + "|"
-                                    + (
-                                    base64 != null && base64.length() > 20
-                                            ? base64.substring(0, 20)
-                                            : "null"
-                            );
-
-                            if (seenPhotoIds.contains(dedupe)) {
-                                continue;
-                            }
-
-                            seenPhotoIds.add(dedupe);
-
-                            double lat = 0;
-                            double lng = 0;
-                            boolean hasValidCoords = false;
-
-                            try {
-                                java.util.Map<String, Object> loc =
-                                        (java.util.Map<String, Object>) doc.get("location");
-
-                                if (loc != null) {
-                                    double rawLat = ((Number) loc.get("latitude")).doubleValue();
-                                    double rawLng = ((Number) loc.get("longitude")).doubleValue();
-
-                                    if (rawLat != -90.0
-                                            && rawLng != -180.0
-                                            && !(rawLat == 0.0 && rawLng == 0.0)
-                                            && rawLat >= -85.0
-                                            && rawLat <= 85.0
-                                            && rawLng >= -180.0
-                                            && rawLng <= 180.0) {
-
-                                        lat = rawLat;
-                                        lng = rawLng;
-                                        hasValidCoords = true;
-                                    }
-                                }
-
-                            } catch (Exception ignored) {
-                            }
-
-                            final double fLat = lat;
-                            final double fLng = lng;
-                            final boolean fHasCoords = hasValidCoords;
-                            final String fBase64 = base64;
-                            final String fRecordedAt = recordedAt;
-
-                            runOnUiThread(() -> {
-                                if (fBase64 != null) {
-                                    addPhotoToGallery(fBase64);
-                                }
-
-                                if (fHasCoords && mapReady && mapView != null) {
-                                    addPhotoMarkerToMap(
-                                            fBase64,
-                                            fLat,
-                                            fLng,
-                                            fRecordedAt
-                                    );
-                                }
-                            });
-                        }
+                        runOnUiThread(() -> {
+                            refreshPhotoGallery();
+                            refreshPoiList();
+                            mapView.invalidate();
+                        });
                     }
-
                     @Override
-                    public void onFailure(
-                            retrofit2.Call<java.util.List<java.util.Map<String, Object>>> call,
-                            Throwable t
-                    ) {
-                        Toast.makeText(
-                                TripDetailsActivity.this,
-                                "Erreur chargement photos : " + t.getMessage(),
-                                Toast.LENGTH_SHORT
-                        ).show();
+                    public void onFailure(retrofit2.Call<java.util.List<java.util.Map<String, Object>>> call, Throwable t) {
+                        Toast.makeText(TripDetailsActivity.this, "Erreur chargement photos", Toast.LENGTH_SHORT).show();
                     }
                 });
     }
 
-    private void addPhotoToGallery(String base64) {
-        LinearLayout galleryLayout = findViewById(R.id.layoutPhotoGallery);
-
-        if (galleryLayout == null) {
-            return;
-        }
-
+    @SuppressWarnings("unchecked")
+    private void parsePhotoDocForDisplay(String currentTripId, Map<String, Object> doc) {
         try {
-            byte[] bytes = android.util.Base64.decode(
-                    base64,
-                    android.util.Base64.DEFAULT
-            );
+            String docTripId = getString(doc, "trip_id", "");
+            if (!currentTripId.equals(docTripId)) return;
 
+            String base64 = getString(doc, "photo_base64", "");
+            if (base64.isEmpty()) return;
+
+            String recordedAt  = getString(doc, "recorded_at", "");
+            String linkedPoiId = getString(doc, "linked_poi_id", "");
+
+            // Déduplication
+            String dedupe = recordedAt + "|" + (base64.length() > 20 ? base64.substring(0, 20) : base64);
+            if (seenPhotoIds.contains(dedupe)) return;
+            seenPhotoIds.add(dedupe);
+
+            byte[] bytes = android.util.Base64.decode(base64, android.util.Base64.DEFAULT);
             Bitmap bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
+            if (bitmap == null) return;
 
-            if (bitmap == null) {
+            // Photo liée à un POI
+            if (!linkedPoiId.isEmpty() && !"null".equalsIgnoreCase(linkedPoiId)) {
+                if (!photosByPoiId.containsKey(linkedPoiId)) photosByPoiId.put(linkedPoiId, new ArrayList<>());
+                photosByPoiId.get(linkedPoiId).add(bitmap);
                 return;
             }
 
-            float d = getResources().getDisplayMetrics().density;
+            // Photo libre
+            freePhotoBitmaps.add(bitmap);
 
-            int fixedH = Math.round(130 * d);
-            float ratio = (float) bitmap.getWidth() / bitmap.getHeight();
+            // Coordonnées GPS
+            Map<String, Object> loc = (Map<String, Object>) doc.get("location");
+            if (loc == null) return;
 
-            int computedW = Math.round(fixedH * ratio);
-            int finalW = Math.max(
-                    Math.round(90 * d),
-                    Math.min(computedW, Math.round(220 * d))
-            );
+            double lat = getDouble(loc, "latitude", 0.0);
+            double lng = getDouble(loc, "longitude", 0.0);
 
-            ImageView img = new ImageView(this);
+            // ── Validation coordonnées — rejette les valeurs par défaut FastAPI ──
+            // lat=-90/lng=-180 = défaut FastAPI = pas de vraies coords
+            // On accepte toute valeur réaliste y compris proche de 0
+            // (ex: Afrique équatoriale est une vraie position)
+            boolean validCoords = lat != -90.0 && lng != -180.0
+                    && lat >= -85.0 && lat <= 85.0
+                    && lng > -180.0 && lng < 180.0;
 
-            LinearLayout.LayoutParams params =
-                    new LinearLayout.LayoutParams(finalW, fixedH);
-
-            params.setMargins(0, 0, Math.round(10 * d), 0);
-
-            img.setLayoutParams(params);
-            img.setScaleType(ImageView.ScaleType.CENTER_CROP);
-            img.setImageBitmap(bitmap);
-            img.setClipToOutline(true);
-
-            img.setOutlineProvider(new android.view.ViewOutlineProvider() {
-                @Override
-                public void getOutline(View v, android.graphics.Outline outline) {
-                    outline.setRoundRect(
-                            0,
-                            0,
-                            v.getWidth(),
-                            v.getHeight(),
-                            Math.round(10 * d)
-                    );
-                }
-            });
-
-            img.setOnClickListener(v -> showFullPhoto(bitmap));
-
-            galleryLayout.addView(img);
-
-            HorizontalScrollView sv = findViewById(R.id.scrollPhotoGallery);
-
-            if (sv != null) {
-                sv.setVisibility(View.VISIBLE);
+            if (validCoords && mapReady && mapView != null) {
+                final double fLat = lat, fLng = lng;
+                final String fRecordedAt = recordedAt;
+                runOnUiThread(() -> addFreePhotoMarkerToMap(bitmap, fLat, fLng, fRecordedAt));
             }
 
-        } catch (Exception ignored) {
+        } catch (Exception e) {
+            android.util.Log.e(TAG, "Erreur parse photo", e);
         }
     }
 
-    private void addPhotoMarkerToMap(
-            String base64,
-            double lat,
-            double lng,
-            String recordedAt
-    ) {
+    private void addFreePhotoMarkerToMap(Bitmap bitmap, double lat, double lng, String recordedAt) {
         Marker marker = new Marker(mapView);
-
         marker.setPosition(new GeoPoint(lat, lng));
         marker.setTitle("📸 Photo souvenir");
         marker.setSnippet(recordedAt != null ? recordedAt : "");
         marker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM);
-
-        if (base64 != null) {
-            try {
-                byte[] bytes = android.util.Base64.decode(
-                        base64,
-                        android.util.Base64.DEFAULT
-                );
-
-                Bitmap bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
-
-                if (bmp != null) {
-                    marker.setIcon(createPhotoMarkerIcon(bmp));
-                } else {
-                    marker.setIcon(createPhotoFallbackMarker());
-                }
-
-            } catch (Exception e) {
-                marker.setIcon(createPhotoFallbackMarker());
-            }
-        } else {
-            marker.setIcon(createPhotoFallbackMarker());
-        }
-
-        marker.setOnMarkerClickListener((m, map) -> {
-            if (base64 != null) {
-                try {
-                    byte[] bytes = android.util.Base64.decode(
-                            base64,
-                            android.util.Base64.DEFAULT
-                    );
-
-                    Bitmap bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
-
-                    if (bmp != null) {
-                        showFullPhoto(bmp);
-                    }
-
-                } catch (Exception ignored) {
-                }
-            }
-
-            return true;
-        });
-
+        // Marqueur bleu pour distinguer des POI rouges
+        marker.setIcon(createPhotoMarkerIcon(bitmap));
+        marker.setOnMarkerClickListener((m, map) -> { showFullPhoto(bitmap); return true; });
         mapView.getOverlays().add(marker);
         mapView.invalidate();
+    }
+
+    // =========================================================================
+    // Galerie photos — format adaptatif paysage/portrait
+    // =========================================================================
+
+    private void refreshPhotoGallery() {
+        LinearLayout galleryLayout = findViewById(R.id.layoutPhotoGallery);
+        HorizontalScrollView scrollView = findViewById(R.id.scrollPhotoGallery);
+        if (galleryLayout == null || scrollView == null) return;
+        galleryLayout.removeAllViews();
+        if (freePhotoBitmaps.isEmpty()) { scrollView.setVisibility(View.GONE); return; }
+        scrollView.setVisibility(View.VISIBLE);
+        for (Bitmap bitmap : freePhotoBitmaps) addBitmapToGallery(galleryLayout, bitmap);
+    }
+
+    private void addBitmapToGallery(LinearLayout galleryLayout, Bitmap bitmap) {
+        float d = getResources().getDisplayMetrics().density;
+        // Hauteur fixe 130dp, largeur calculée selon ratio réel de la photo
+        int fixedH = Math.round(130 * d);
+        float ratio = (float) bitmap.getWidth() / bitmap.getHeight();
+        int computedW = Math.round(fixedH * ratio);
+        // Min 90dp, max 220dp
+        int finalW = Math.max(Math.round(90*d), Math.min(computedW, Math.round(220*d)));
+
+        ImageView img = new ImageView(this);
+        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(finalW, fixedH);
+        p.setMargins(0, 0, Math.round(10*d), 0);
+        img.setLayoutParams(p);
+        img.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        img.setImageBitmap(bitmap);
+        img.setClipToOutline(true);
+        img.setOutlineProvider(new android.view.ViewOutlineProvider() {
+            @Override public void getOutline(View v, android.graphics.Outline o) {
+                o.setRoundRect(0, 0, v.getWidth(), v.getHeight(), Math.round(10*d));
+            }
+        });
+        img.setOnClickListener(v -> showFullPhoto(bitmap));
+        galleryLayout.addView(img);
+    }
+
+    private void refreshPoiList() {
+        if (layoutPoisContainer == null || currentTrip == null) return;
+        layoutPoisContainer.removeAllViews();
+        for (Poi poi : currentTrip.getPois()) addPoiView(layoutPoisContainer, poi);
+    }
+
+    // =========================================================================
+    // Dialog POI
+    // =========================================================================
+
+    private void showPoiDialog(Poi poi) {
+        float d = getResources().getDisplayMetrics().density;
+        LinearLayout layout = new LinearLayout(this);
+        layout.setOrientation(LinearLayout.VERTICAL);
+        layout.setPadding(Math.round(22*d), Math.round(18*d), Math.round(22*d), Math.round(12*d));
+
+        TextView title = new TextView(this);
+        title.setText(poi.getName()); title.setTextSize(20); title.setTextColor(0xFF1A1A2E);
+        title.setTypeface(null, android.graphics.Typeface.BOLD); layout.addView(title);
+
+        TextView type = new TextView(this);
+        type.setText(poi.getType() + " • " + poi.getRatingStars());
+        type.setTextSize(14); type.setTextColor(0xFF6C63FF);
+        type.setPadding(0, Math.round(4*d), 0, Math.round(10*d)); layout.addView(type);
+
+        // Photo POI au bon format
+        Bitmap poiBitmap = decodeBitmap(poi.getPhotoBase64());
+        if (poiBitmap != null) {
+            ImageView img = new ImageView(this);
+            img.setImageBitmap(poiBitmap);
+            // Format adaptatif : largeur match_parent, hauteur proportionnelle
+            float poiRatio = (float) poiBitmap.getWidth() / poiBitmap.getHeight();
+            int poiW = (int)(getResources().getDisplayMetrics().widthPixels * 0.75f);
+            int poiH = Math.round(poiW / poiRatio);
+            // Limiter hauteur max à 200dp
+            int maxH = Math.round(200 * d);
+            if (poiH > maxH) { poiH = maxH; poiW = Math.round(poiH * poiRatio); }
+            LinearLayout.LayoutParams pp = new LinearLayout.LayoutParams(poiW, poiH);
+            pp.setMargins(0, 0, 0, Math.round(12*d));
+            img.setLayoutParams(pp);
+            img.setScaleType(ImageView.ScaleType.FIT_CENTER);
+            img.setOnClickListener(v -> showFullPhoto(poiBitmap));
+            layout.addView(img);
+        }
+
+        if (poi.getComment() != null && !poi.getComment().isEmpty()) {
+            TextView comment = new TextView(this);
+            comment.setText(poi.getComment()); comment.setTextSize(14); comment.setTextColor(0xFF333344);
+            comment.setPadding(0, 0, 0, Math.round(10*d)); layout.addView(comment);
+        }
+
+        List<Bitmap> linkedPhotos = photosByPoiId.get(poi.getPoiId());
+        if (linkedPhotos != null && !linkedPhotos.isEmpty()) {
+            TextView st = new TextView(this);
+            st.setText("Photos souvenirs prises ici"); st.setTextSize(16); st.setTextColor(0xFF1A1A2E);
+            st.setTypeface(null, android.graphics.Typeface.BOLD);
+            st.setPadding(0, Math.round(12*d), 0, Math.round(8*d)); layout.addView(st);
+            HorizontalScrollView sv = new HorizontalScrollView(this);
+            LinearLayout row = new LinearLayout(this);
+            row.setOrientation(LinearLayout.HORIZONTAL);
+            for (Bitmap bmp : linkedPhotos) {
+                ImageView iv = new ImageView(this);
+                // Format adaptatif pour les photos liées aussi
+                float r = (float) bmp.getWidth() / bmp.getHeight();
+                int fH = Math.round(90 * d);
+                int fW = Math.round(fH * r);
+                fW = Math.max(Math.round(60*d), Math.min(fW, Math.round(150*d)));
+                LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(fW, fH);
+                lp.setMargins(0, 0, Math.round(8*d), 0);
+                iv.setLayoutParams(lp);
+                iv.setScaleType(ImageView.ScaleType.CENTER_CROP);
+                iv.setImageBitmap(bmp);
+                iv.setOnClickListener(v -> showFullPhoto(bmp));
+                row.addView(iv);
+            }
+            sv.addView(row); layout.addView(sv);
+        }
+
+        TextView coords = new TextView(this);
+        coords.setText("GPS : " + String.format(java.util.Locale.FRANCE, "%.5f", poi.getLat())
+                + ", " + String.format(java.util.Locale.FRANCE, "%.5f", poi.getLng()));
+        coords.setTextSize(12); coords.setTextColor(0xFF777788);
+        coords.setPadding(0, Math.round(10*d), 0, 0); layout.addView(coords);
+
+        new AlertDialog.Builder(this).setView(layout).setPositiveButton("Fermer", null).show();
+    }
+
+    // =========================================================================
+    // POI liste — photo au bon format paysage/portrait
+    // =========================================================================
+
+    private void addPoiView(LinearLayout container, Poi poi) {
+        float d = getResources().getDisplayMetrics().density;
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setPadding(Math.round(16*d), Math.round(16*d), Math.round(16*d), Math.round(16*d));
+        card.setBackgroundColor(0xFF1E1E35);
+        LinearLayout.LayoutParams cp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        cp.setMargins(0, 0, 0, Math.round(12*d)); card.setLayoutParams(cp);
+
+        LinearLayout headerRow = new LinearLayout(this);
+        headerRow.setOrientation(LinearLayout.HORIZONTAL);
+        TextView tvName = new TextView(this); tvName.setText(poi.getName());
+        tvName.setTextSize(16); tvName.setTextColor(0xFFFFFFFF);
+        tvName.setTypeface(null, android.graphics.Typeface.BOLD);
+        tvName.setLayoutParams(new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+        headerRow.addView(tvName);
+        TextView tvType = new TextView(this); tvType.setText(poi.getType());
+        tvType.setTextSize(11); tvType.setTextColor(0xFFA89CFF);
+        tvType.setPadding(Math.round(8*d), Math.round(2*d), Math.round(8*d), Math.round(2*d));
+        tvType.setBackgroundColor(0xFF2D2D50);
+        headerRow.addView(tvType); card.addView(headerRow);
+
+        TextView tvRating = new TextView(this); tvRating.setText(poi.getRatingStars());
+        tvRating.setTextSize(14); tvRating.setTextColor(0xFFD97706);
+        tvRating.setPadding(0, Math.round(6*d), 0, Math.round(2*d)); card.addView(tvRating);
+
+        if (poi.getComment() != null && !poi.getComment().isEmpty()) {
+            TextView tvComment = new TextView(this); tvComment.setText(poi.getComment());
+            tvComment.setTextSize(13); tvComment.setTextColor(0xFF9999BB);
+            tvComment.setPadding(0, Math.round(4*d), 0, Math.round(6*d)); card.addView(tvComment);
+        }
+
+        // ── Photo POI — format adaptatif selon ratio réel ────────────────────
+        Bitmap poiBitmap = decodeBitmap(poi.getPhotoBase64());
+        if (poiBitmap != null) {
+            ImageView imgPoi = new ImageView(this);
+            // Hauteur fixe 120dp, largeur proportionnelle au ratio
+            int fixH = Math.round(120 * d);
+            float ratio = (float) poiBitmap.getWidth() / poiBitmap.getHeight();
+            int fixW = Math.round(fixH * ratio);
+            fixW = Math.max(Math.round(80*d), Math.min(fixW, Math.round(280*d)));
+            LinearLayout.LayoutParams imgP = new LinearLayout.LayoutParams(fixW, fixH);
+            imgP.setMargins(0, Math.round(6*d), 0, Math.round(6*d));
+            imgPoi.setLayoutParams(imgP);
+            imgPoi.setScaleType(ImageView.ScaleType.CENTER_CROP);
+            imgPoi.setImageBitmap(poiBitmap);
+            imgPoi.setClipToOutline(true);
+            imgPoi.setOutlineProvider(new android.view.ViewOutlineProvider() {
+                @Override public void getOutline(View v, android.graphics.Outline o) {
+                    o.setRoundRect(0, 0, v.getWidth(), v.getHeight(), Math.round(8*d));
+                }
+            });
+            imgPoi.setOnClickListener(v -> showFullPhoto(poiBitmap));
+            card.addView(imgPoi);
+        }
+
+        List<Bitmap> linkedPhotos = photosByPoiId.get(poi.getPoiId());
+        int linkedCount = linkedPhotos == null ? 0 : linkedPhotos.size();
+        TextView tvLinked = new TextView(this);
+        tvLinked.setText("📸 " + linkedCount + " photo(s) souvenir liée(s)");
+        tvLinked.setTextSize(12); tvLinked.setTextColor(0xFFA89CFF);
+        tvLinked.setPadding(0, Math.round(6*d), 0, 0); card.addView(tvLinked);
+
+        TextView tvCoords = new TextView(this);
+        tvCoords.setText("GPS : " + String.format(java.util.Locale.FRANCE, "%.5f", poi.getLat())
+                + ", " + String.format(java.util.Locale.FRANCE, "%.5f", poi.getLng()));
+        tvCoords.setTextSize(10); tvCoords.setTextColor(0xFF555570);
+        tvCoords.setPadding(0, Math.round(6*d), 0, 0); card.addView(tvCoords);
+
+        card.setOnClickListener(v -> showPoiDialog(poi));
+        container.addView(card);
     }
 
     // =========================================================================
@@ -496,455 +488,121 @@ public class TripDetailsActivity extends AppCompatActivity {
 
     private BitmapDrawable createPoiPhotoMarkerIcon(Bitmap photo) {
         float d = getResources().getDisplayMetrics().density;
-
-        int width = Math.round(78 * d);
-        int height = Math.round(92 * d);
-        int imageSize = Math.round(64 * d);
-        int border = Math.round(3 * d);
-
-        Bitmap result = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
+        int w = Math.round(78*d), h = Math.round(92*d);
+        int imgSize = Math.round(64*d), border = Math.round(3*d);
+        Bitmap result = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
         Canvas canvas = new Canvas(result);
-
-        Paint shadow = new Paint(Paint.ANTI_ALIAS_FLAG);
-        shadow.setColor(0x55000000);
-
-        canvas.drawRoundRect(
-                Math.round(6 * d),
-                Math.round(6 * d),
-                width - Math.round(6 * d),
-                imageSize + Math.round(14 * d),
-                Math.round(14 * d),
-                Math.round(14 * d),
-                shadow
-        );
-
-        Paint bg = new Paint(Paint.ANTI_ALIAS_FLAG);
-        bg.setColor(Color.WHITE);
-
-        canvas.drawRoundRect(
-                Math.round(4 * d),
-                Math.round(2 * d),
-                width - Math.round(4 * d),
-                imageSize + Math.round(10 * d),
-                Math.round(14 * d),
-                Math.round(14 * d),
-                bg
-        );
-
-        int left = (width - imageSize) / 2;
-        int top = Math.round(6 * d);
-        int innerSize = imageSize - border * 2;
-
-        float scale = Math.max(
-                (float) innerSize / photo.getWidth(),
-                (float) innerSize / photo.getHeight()
-        );
-
-        int scaledW = Math.round(photo.getWidth() * scale);
-        int scaledH = Math.round(photo.getHeight() * scale);
-
-        Bitmap scaled = Bitmap.createScaledBitmap(photo, scaledW, scaledH, true);
-
-        int cropX = Math.max(0, (scaledW - innerSize) / 2);
-        int cropY = Math.max(0, (scaledH - innerSize) / 2);
-
-        int cropW = Math.min(innerSize, scaledW - cropX);
-        int cropH = Math.min(innerSize, scaledH - cropY);
-
-        if (cropW > 0 && cropH > 0) {
-            Bitmap cropped = Bitmap.createBitmap(
-                    scaled,
-                    cropX,
-                    cropY,
-                    cropW,
-                    cropH
-            );
-
-            android.graphics.RectF imageRect = new android.graphics.RectF(
-                    left + border,
-                    top + border,
-                    left + border + innerSize,
-                    top + border + innerSize
-            );
-
+        Paint shadow = new Paint(Paint.ANTI_ALIAS_FLAG); shadow.setColor(0x55000000);
+        canvas.drawRoundRect(Math.round(6*d), Math.round(6*d), w-Math.round(6*d), imgSize+Math.round(14*d), Math.round(14*d), Math.round(14*d), shadow);
+        Paint bg = new Paint(Paint.ANTI_ALIAS_FLAG); bg.setColor(Color.WHITE);
+        canvas.drawRoundRect(Math.round(4*d), Math.round(2*d), w-Math.round(4*d), imgSize+Math.round(10*d), Math.round(14*d), Math.round(14*d), bg);
+        int left=(w-imgSize)/2, top=Math.round(6*d), inner=imgSize-border*2;
+        float sc=Math.max((float)inner/photo.getWidth(),(float)inner/photo.getHeight());
+        int sW=Math.round(photo.getWidth()*sc), sH=Math.round(photo.getHeight()*sc);
+        Bitmap scaled=Bitmap.createScaledBitmap(photo,sW,sH,true);
+        int cX=Math.max(0,(sW-inner)/2), cY=Math.max(0,(sH-inner)/2);
+        int cW=Math.min(inner,sW-cX), cH=Math.min(inner,sH-cY);
+        if (cW>0&&cH>0) {
+            Bitmap cropped=Bitmap.createBitmap(scaled,cX,cY,cW,cH);
+            android.graphics.RectF rect=new android.graphics.RectF(left+border,top+border,left+border+inner,top+border+inner);
             canvas.save();
-
-            android.graphics.Path clipPath = new android.graphics.Path();
-
-            clipPath.addRoundRect(
-                    imageRect,
-                    Math.round(10 * d),
-                    Math.round(10 * d),
-                    android.graphics.Path.Direction.CW
-            );
-
-            canvas.clipPath(clipPath);
-            canvas.drawBitmap(cropped, null, imageRect, null);
-            canvas.restore();
+            android.graphics.Path p2=new android.graphics.Path(); p2.addRoundRect(rect,Math.round(10*d),Math.round(10*d),android.graphics.Path.Direction.CW);
+            canvas.clipPath(p2); canvas.drawBitmap(cropped,null,rect,null); canvas.restore();
         }
-
-        Paint pinPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-        pinPaint.setColor(0xFFDC2626);
-
-        android.graphics.Path pin = new android.graphics.Path();
-
-        pin.moveTo(
-                width / 2f - Math.round(12 * d),
-                imageSize + Math.round(6 * d)
-        );
-
-        pin.lineTo(
-                width / 2f + Math.round(12 * d),
-                imageSize + Math.round(6 * d)
-        );
-
-        pin.lineTo(
-                width / 2f,
-                height - Math.round(4 * d)
-        );
-
-        pin.close();
-
-        canvas.drawPath(pin, pinPaint);
-
-        Paint dot = new Paint(Paint.ANTI_ALIAS_FLAG);
-        dot.setColor(Color.WHITE);
-
-        canvas.drawCircle(
-                width / 2f,
-                imageSize + Math.round(10 * d),
-                Math.round(4 * d),
-                dot
-        );
-
-        return new BitmapDrawable(getResources(), result);
+        Paint pin=new Paint(Paint.ANTI_ALIAS_FLAG); pin.setColor(0xFFDC2626);
+        android.graphics.Path pinPath=new android.graphics.Path();
+        pinPath.moveTo(w/2f-Math.round(12*d),imgSize+Math.round(6*d));
+        pinPath.lineTo(w/2f+Math.round(12*d),imgSize+Math.round(6*d));
+        pinPath.lineTo(w/2f,h-Math.round(4*d)); pinPath.close();
+        canvas.drawPath(pinPath,pin);
+        Paint dot=new Paint(Paint.ANTI_ALIAS_FLAG); dot.setColor(Color.WHITE);
+        canvas.drawCircle(w/2f,imgSize+Math.round(10*d),Math.round(4*d),dot);
+        return new BitmapDrawable(getResources(),result);
     }
 
     private BitmapDrawable createModernPoiMarker() {
         float d = getResources().getDisplayMetrics().density;
-
-        int width = Math.round(54 * d);
-        int height = Math.round(68 * d);
-
-        Bitmap bmp = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
-        Canvas canvas = new Canvas(bmp);
-
-        Paint shadow = new Paint(Paint.ANTI_ALIAS_FLAG);
-        shadow.setColor(0x55000000);
-
-        canvas.drawCircle(
-                width / 2f,
-                Math.round(24 * d),
-                Math.round(19 * d),
-                shadow
-        );
-
-        Paint fill = new Paint(Paint.ANTI_ALIAS_FLAG);
-        fill.setColor(0xFFDC2626);
-
-        canvas.drawCircle(
-                width / 2f,
-                Math.round(22 * d),
-                Math.round(18 * d),
-                fill
-        );
-
-        android.graphics.Path path = new android.graphics.Path();
-
-        path.moveTo(
-                width / 2f - Math.round(13 * d),
-                Math.round(34 * d)
-        );
-
-        path.lineTo(
-                width / 2f + Math.round(13 * d),
-                Math.round(34 * d)
-        );
-
-        path.lineTo(
-                width / 2f,
-                height - Math.round(6 * d)
-        );
-
-        path.close();
-
-        canvas.drawPath(path, fill);
-
-        Paint white = new Paint(Paint.ANTI_ALIAS_FLAG);
-        white.setColor(Color.WHITE);
-
-        canvas.drawCircle(
-                width / 2f,
-                Math.round(22 * d),
-                Math.round(7 * d),
-                white
-        );
-
-        return new BitmapDrawable(getResources(), bmp);
+        int w=Math.round(54*d), h=Math.round(68*d);
+        Bitmap bmp=Bitmap.createBitmap(w,h,Bitmap.Config.ARGB_8888);
+        Canvas canvas=new Canvas(bmp);
+        Paint shadow=new Paint(Paint.ANTI_ALIAS_FLAG); shadow.setColor(0x55000000);
+        canvas.drawCircle(w/2f,Math.round(24*d),Math.round(19*d),shadow);
+        Paint fill=new Paint(Paint.ANTI_ALIAS_FLAG); fill.setColor(0xFFDC2626);
+        canvas.drawCircle(w/2f,Math.round(22*d),Math.round(18*d),fill);
+        android.graphics.Path path=new android.graphics.Path();
+        path.moveTo(w/2f-Math.round(13*d),Math.round(34*d));
+        path.lineTo(w/2f+Math.round(13*d),Math.round(34*d));
+        path.lineTo(w/2f,h-Math.round(6*d)); path.close();
+        canvas.drawPath(path,fill);
+        Paint white=new Paint(Paint.ANTI_ALIAS_FLAG); white.setColor(Color.WHITE);
+        canvas.drawCircle(w/2f,Math.round(22*d),Math.round(7*d),white);
+        return new BitmapDrawable(getResources(),bmp);
     }
 
+    /**
+     * Marqueur photo souvenir — BLEU pour distinguer des POI rouges.
+     * Format adaptatif : paysage 80×52dp / portrait 44×64dp / carré 60×60dp
+     * Pointe bleue en bas pour ancrage précis sur la carte.
+     */
     private BitmapDrawable createPhotoMarkerIcon(Bitmap photo) {
         float d = getResources().getDisplayMetrics().density;
+        int border = Math.round(3*d);
 
-        int border = Math.round(3 * d);
-
+        // Format selon ratio de la photo
         float ratio = (float) photo.getWidth() / photo.getHeight();
+        int mW, mH;
+        if (ratio >= 1.2f)       { mW=Math.round(80*d); mH=Math.round(52*d); }
+        else if (ratio <= 0.85f) { mW=Math.round(44*d); mH=Math.round(64*d); }
+        else                     { mW=Math.round(60*d); mH=Math.round(60*d); }
 
-        int markerW;
-        int markerH;
+        // Hauteur totale = image + pointe bleue (14dp)
+        int pinH = Math.round(14*d);
+        int totalH = mH + pinH;
 
-        if (ratio >= 1.2f) {
-            markerW = Math.round(84 * d);
-            markerH = Math.round(58 * d);
-        } else if (ratio <= 0.85f) {
-            markerW = Math.round(52 * d);
-            markerH = Math.round(72 * d);
-        } else {
-            markerW = Math.round(66 * d);
-            markerH = Math.round(66 * d);
-        }
-
-        Bitmap result = Bitmap.createBitmap(
-                markerW,
-                markerH,
-                Bitmap.Config.ARGB_8888
-        );
-
+        Bitmap result = Bitmap.createBitmap(mW, totalH, Bitmap.Config.ARGB_8888);
         Canvas canvas = new Canvas(result);
 
-        Paint shadow = new Paint(Paint.ANTI_ALIAS_FLAG);
-        shadow.setColor(0x55000000);
+        // Ombre
+        Paint shadow = new Paint(Paint.ANTI_ALIAS_FLAG); shadow.setColor(0x44000000);
+        canvas.drawRoundRect(Math.round(2*d), Math.round(3*d), mW, mH, Math.round(8*d), Math.round(8*d), shadow);
 
-        canvas.drawRoundRect(
-                Math.round(2 * d),
-                Math.round(3 * d),
-                markerW,
-                markerH,
-                Math.round(10 * d),
-                Math.round(10 * d),
-                shadow
-        );
+        // Fond blanc cadre photo
+        Paint bgPaint = new Paint(Paint.ANTI_ALIAS_FLAG); bgPaint.setColor(Color.WHITE);
+        canvas.drawRoundRect(0, 0, mW-Math.round(2*d), mH-Math.round(2*d), Math.round(8*d), Math.round(8*d), bgPaint);
 
-        Paint background = new Paint(Paint.ANTI_ALIAS_FLAG);
-        background.setColor(Color.WHITE);
-
-        canvas.drawRoundRect(
-                0,
-                0,
-                markerW - Math.round(3 * d),
-                markerH - Math.round(3 * d),
-                Math.round(10 * d),
-                Math.round(10 * d),
-                background
-        );
-
-        int innerW = markerW - border * 2 - Math.round(3 * d);
-        int innerH = markerH - border * 2 - Math.round(3 * d);
-
-        float scaleX = (float) innerW / photo.getWidth();
-        float scaleY = (float) innerH / photo.getHeight();
-        float scale = Math.max(scaleX, scaleY);
-
-        int scaledW = Math.round(photo.getWidth() * scale);
-        int scaledH = Math.round(photo.getHeight() * scale);
-
-        Bitmap scaled = Bitmap.createScaledBitmap(photo, scaledW, scaledH, true);
-
-        int cropX = Math.max(0, (scaledW - innerW) / 2);
-        int cropY = Math.max(0, (scaledH - innerH) / 2);
-
-        int cropW = Math.min(innerW, scaledW - cropX);
-        int cropH = Math.min(innerH, scaledH - cropY);
-
-        if (cropW > 0 && cropH > 0) {
-            Bitmap cropped = Bitmap.createBitmap(
-                    scaled,
-                    cropX,
-                    cropY,
-                    cropW,
-                    cropH
-            );
-
-            android.graphics.RectF imageRect = new android.graphics.RectF(
-                    border,
-                    border,
-                    border + innerW,
-                    border + innerH
-            );
-
+        // Photo en centerCrop
+        int innerW = mW-border*2-Math.round(2*d);
+        int innerH = mH-border*2-Math.round(2*d);
+        float sc = Math.max((float)innerW/photo.getWidth(), (float)innerH/photo.getHeight());
+        int sW=Math.round(photo.getWidth()*sc), sH=Math.round(photo.getHeight()*sc);
+        Bitmap scaled = Bitmap.createScaledBitmap(photo, sW, sH, true);
+        int cX=Math.max(0,(sW-innerW)/2), cY=Math.max(0,(sH-innerH)/2);
+        int cW=Math.min(innerW,sW-cX), cH=Math.min(innerH,sH-cY);
+        if (cW>0 && cH>0) {
+            Bitmap cropped = Bitmap.createBitmap(scaled, cX, cY, cW, cH);
+            android.graphics.RectF rect = new android.graphics.RectF(border, border, border+innerW, border+innerH);
             canvas.save();
-
-            android.graphics.Path clipPath = new android.graphics.Path();
-
-            clipPath.addRoundRect(
-                    imageRect,
-                    Math.round(8 * d),
-                    Math.round(8 * d),
-                    android.graphics.Path.Direction.CW
-            );
-
-            canvas.clipPath(clipPath);
-            canvas.drawBitmap(cropped, null, imageRect, null);
+            android.graphics.Path clip = new android.graphics.Path();
+            clip.addRoundRect(rect, Math.round(6*d), Math.round(6*d), android.graphics.Path.Direction.CW);
+            canvas.clipPath(clip);
+            canvas.drawBitmap(cropped, null, rect, null);
             canvas.restore();
         }
 
+        // Pointe BLEUE en bas — distingue des POI rouges
+        Paint pinPaint = new Paint(Paint.ANTI_ALIAS_FLAG); pinPaint.setColor(0xFF3B82F6);
+        android.graphics.Path pinPath = new android.graphics.Path();
+        pinPath.moveTo(mW/2f - Math.round(10*d), mH - Math.round(2*d));
+        pinPath.lineTo(mW/2f + Math.round(10*d), mH - Math.round(2*d));
+        pinPath.lineTo(mW/2f, totalH - Math.round(2*d));
+        pinPath.close();
+        canvas.drawPath(pinPath, pinPaint);
+
+        // Point blanc sur la pointe
+        Paint dot = new Paint(Paint.ANTI_ALIAS_FLAG); dot.setColor(Color.WHITE);
+        canvas.drawCircle(mW/2f, mH + Math.round(3*d), Math.round(3*d), dot);
+
         return new BitmapDrawable(getResources(), result);
-    }
-
-    private BitmapDrawable createPhotoFallbackMarker() {
-        float d = getResources().getDisplayMetrics().density;
-
-        int size = Math.round(44 * d);
-
-        Bitmap bmp = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888);
-        Canvas canvas = new Canvas(bmp);
-
-        Paint bg = new Paint(Paint.ANTI_ALIAS_FLAG);
-        bg.setColor(0xFF6C63FF);
-
-        canvas.drawCircle(size / 2f, size / 2f, size / 2.5f, bg);
-
-        Paint white = new Paint(Paint.ANTI_ALIAS_FLAG);
-        white.setColor(Color.WHITE);
-        white.setTextAlign(Paint.Align.CENTER);
-        white.setTextSize(Math.round(20 * d));
-
-        canvas.drawText(
-                "📸",
-                size / 2f,
-                size / 2f + Math.round(7 * d),
-                white
-        );
-
-        return new BitmapDrawable(getResources(), bmp);
-    }
-
-    // Ancienne méthode gardée au cas où
-    private BitmapDrawable createPoiMarker() {
-        return createModernPoiMarker();
-    }
-
-    // =========================================================================
-    // Dialog POI amélioré
-    // =========================================================================
-
-    private void showPoiDialog(Poi poi) {
-        float d = getResources().getDisplayMetrics().density;
-
-        LinearLayout layout = new LinearLayout(this);
-        layout.setOrientation(LinearLayout.VERTICAL);
-        layout.setPadding(
-                Math.round(22 * d),
-                Math.round(18 * d),
-                Math.round(22 * d),
-                Math.round(12 * d)
-        );
-
-        TextView title = new TextView(this);
-        title.setText(poi.getName());
-        title.setTextSize(20);
-        title.setTextColor(0xFF1A1A2E);
-        title.setTypeface(null, android.graphics.Typeface.BOLD);
-
-        layout.addView(title);
-
-        TextView type = new TextView(this);
-        type.setText(poi.getType() + " • " + poi.getRatingStars());
-        type.setTextSize(14);
-        type.setTextColor(0xFF6C63FF);
-        type.setPadding(
-                0,
-                Math.round(4 * d),
-                0,
-                Math.round(10 * d)
-        );
-
-        layout.addView(type);
-
-        String photoBase64 = poi.getPhotoBase64();
-
-        if (photoBase64 != null && !photoBase64.isEmpty()) {
-            try {
-                byte[] bytes = android.util.Base64.decode(
-                        photoBase64,
-                        android.util.Base64.DEFAULT
-                );
-
-                Bitmap bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
-
-                if (bmp != null) {
-                    ImageView image = new ImageView(this);
-                    image.setImageBitmap(bmp);
-                    image.setScaleType(ImageView.ScaleType.CENTER_CROP);
-
-                    LinearLayout.LayoutParams params =
-                            new LinearLayout.LayoutParams(
-                                    LinearLayout.LayoutParams.MATCH_PARENT,
-                                    Math.round(180 * d)
-                            );
-
-                    params.setMargins(0, 0, 0, Math.round(12 * d));
-
-                    image.setLayoutParams(params);
-                    image.setOnClickListener(v -> showFullPhoto(bmp));
-
-                    layout.addView(image);
-                }
-
-            } catch (Exception ignored) {
-            }
-        }
-
-        if (poi.getComment() != null && !poi.getComment().isEmpty()) {
-            TextView comment = new TextView(this);
-            comment.setText(poi.getComment());
-            comment.setTextSize(14);
-            comment.setTextColor(0xFF333344);
-            comment.setPadding(
-                    0,
-                    0,
-                    0,
-                    Math.round(10 * d)
-            );
-
-            layout.addView(comment);
-        }
-
-        TextView coords = new TextView(this);
-
-        coords.setText(
-                "GPS : "
-                        + String.format(java.util.Locale.FRANCE, "%.5f", poi.getLat())
-                        + ", "
-                        + String.format(java.util.Locale.FRANCE, "%.5f", poi.getLng())
-        );
-
-        coords.setTextSize(12);
-        coords.setTextColor(0xFF777788);
-
-        layout.addView(coords);
-
-        new AlertDialog.Builder(this)
-                .setView(layout)
-                .setPositiveButton("Fermer", null)
-                .show();
-    }
-
-    // =========================================================================
-    // Galerie / photo plein écran
-    // =========================================================================
-
-    private void showFullPhoto(Bitmap bitmap) {
-        ImageView img = new ImageView(this);
-
-        img.setImageBitmap(bitmap);
-        img.setScaleType(ImageView.ScaleType.FIT_CENTER);
-        img.setPadding(16, 16, 16, 16);
-
-        new AlertDialog.Builder(this)
-                .setView(img)
-                .setPositiveButton("Fermer", null)
-                .show();
     }
 
     // =========================================================================
@@ -953,307 +611,79 @@ public class TripDetailsActivity extends AppCompatActivity {
 
     private void showQrDialog(Trip trip) {
         String tripUrl = API_BASE_URL + "/trip/" + trip.getId();
-
         Bitmap qrBitmap = generateQrCode(tripUrl, 600);
-
-        if (qrBitmap == null) {
-            Toast.makeText(this, "Erreur QR code", Toast.LENGTH_SHORT).show();
-            return;
-        }
-
-        LinearLayout dialogLayout = new LinearLayout(this);
-
-        dialogLayout.setOrientation(LinearLayout.VERTICAL);
-        dialogLayout.setPadding(48, 32, 48, 16);
-        dialogLayout.setGravity(Gravity.CENTER);
-
-        TextView tvTitle = new TextView(this);
-        tvTitle.setText("Partager « " + trip.getTitle() + " »");
-        tvTitle.setTextSize(16);
-        tvTitle.setTextColor(0xFF1A1A2E);
-        tvTitle.setTypeface(null, android.graphics.Typeface.BOLD);
-        tvTitle.setGravity(Gravity.CENTER);
-        tvTitle.setPadding(0, 0, 0, 16);
-
-        dialogLayout.addView(tvTitle);
-
+        if (qrBitmap == null) { Toast.makeText(this, "Erreur QR code", Toast.LENGTH_SHORT).show(); return; }
+        LinearLayout dl = new LinearLayout(this); dl.setOrientation(LinearLayout.VERTICAL);
+        dl.setPadding(48,32,48,16); dl.setGravity(Gravity.CENTER);
+        TextView tvT = new TextView(this); tvT.setText("Partager « " + trip.getTitle() + " »");
+        tvT.setTextSize(16); tvT.setTextColor(0xFF1A1A2E);
+        tvT.setTypeface(null, android.graphics.Typeface.BOLD);
+        tvT.setGravity(Gravity.CENTER); tvT.setPadding(0,0,0,16); dl.addView(tvT);
         ImageView ivQr = new ImageView(this);
-
-        int qrSize = Math.round(
-                260 * getResources().getDisplayMetrics().density
-        );
-
-        ivQr.setLayoutParams(
-                new LinearLayout.LayoutParams(qrSize, qrSize)
-        );
-
-        ivQr.setImageBitmap(qrBitmap);
-        ivQr.setScaleType(ImageView.ScaleType.FIT_CENTER);
-
-        dialogLayout.addView(ivQr);
-
-        TextView tvUrl = new TextView(this);
-        tvUrl.setText(tripUrl);
-        tvUrl.setTextSize(10);
-        tvUrl.setTextColor(0xFF6C63FF);
-        tvUrl.setGravity(Gravity.CENTER);
-        tvUrl.setPadding(0, 12, 0, 0);
-
-        dialogLayout.addView(tvUrl);
-
-        TextView tvInfo = new TextView(this);
-        tvInfo.setText("Scannez ce QR code pour accéder au voyage");
-        tvInfo.setTextSize(11);
-        tvInfo.setTextColor(0xFF9999BB);
-        tvInfo.setGravity(Gravity.CENTER);
-        tvInfo.setPadding(0, 4, 0, 16);
-
-        dialogLayout.addView(tvInfo);
-
-        AlertDialog dialog = new AlertDialog.Builder(this)
-                .setView(dialogLayout)
-                .setPositiveButton("Fermer", null)
-                .setNeutralButton("📤 Partager le lien", null)
-                .create();
-
+        int qrSize = Math.round(260*getResources().getDisplayMetrics().density);
+        ivQr.setLayoutParams(new LinearLayout.LayoutParams(qrSize,qrSize));
+        ivQr.setImageBitmap(qrBitmap); ivQr.setScaleType(ImageView.ScaleType.FIT_CENTER); dl.addView(ivQr);
+        TextView tvUrl = new TextView(this); tvUrl.setText(tripUrl);
+        tvUrl.setTextSize(10); tvUrl.setTextColor(0xFF6C63FF); tvUrl.setGravity(Gravity.CENTER); tvUrl.setPadding(0,12,0,0); dl.addView(tvUrl);
+        TextView tvI = new TextView(this); tvI.setText("Scannez ce QR code pour accéder au voyage");
+        tvI.setTextSize(11); tvI.setTextColor(0xFF9999BB); tvI.setGravity(Gravity.CENTER); tvI.setPadding(0,4,0,16); dl.addView(tvI);
+        AlertDialog dialog = new AlertDialog.Builder(this).setView(dl)
+                .setPositiveButton("Fermer",null).setNeutralButton("📤 Partager le lien",null).create();
         dialog.show();
-
-        dialog.getButton(AlertDialog.BUTTON_NEUTRAL)
-                .setOnClickListener(v -> shareLink(trip.getTitle(), tripUrl));
+        dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener(v -> shareLink(trip.getTitle(), tripUrl));
     }
 
     private Bitmap generateQrCode(String content, int size) {
         try {
-            BitMatrix bitMatrix = new QRCodeWriter().encode(
-                    content,
-                    BarcodeFormat.QR_CODE,
-                    size,
-                    size
-            );
-
-            Bitmap bitmap = Bitmap.createBitmap(
-                    size,
-                    size,
-                    Bitmap.Config.RGB_565
-            );
-
-            for (int x = 0; x < size; x++) {
-                for (int y = 0; y < size; y++) {
-                    bitmap.setPixel(
-                            x,
-                            y,
-                            bitMatrix.get(x, y) ? 0xFF6C63FF : 0xFFFFFFFF
-                    );
-                }
-            }
-
+            BitMatrix bm = new QRCodeWriter().encode(content, BarcodeFormat.QR_CODE, size, size);
+            Bitmap bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.RGB_565);
+            for (int x=0;x<size;x++) for (int y=0;y<size;y++)
+                bitmap.setPixel(x,y,bm.get(x,y)?0xFF6C63FF:0xFFFFFFFF);
             return bitmap;
-
-        } catch (WriterException e) {
-            return null;
-        }
+        } catch (WriterException e) { return null; }
     }
 
     private void shareLink(String title, String url) {
-        Intent intent = new Intent(Intent.ACTION_SEND);
-
-        intent.setType("text/plain");
-        intent.putExtra(Intent.EXTRA_SUBJECT, "SmartTrip — " + title);
-        intent.putExtra(
-                Intent.EXTRA_TEXT,
-                "Découvre mon voyage « " + title + " » sur SmartTrip :\n" + url
-        );
-
-        startActivity(Intent.createChooser(intent, "Partager le voyage via…"));
+        Intent i = new Intent(Intent.ACTION_SEND); i.setType("text/plain");
+        i.putExtra(Intent.EXTRA_SUBJECT, "SmartTrip — " + title);
+        i.putExtra(Intent.EXTRA_TEXT, "Découvre mon voyage « " + title + " » sur SmartTrip :\n" + url);
+        startActivity(Intent.createChooser(i, "Partager le voyage via…"));
     }
 
     // =========================================================================
-    // POI en liste sous la carte
+    // Utilitaires
     // =========================================================================
 
-    private void addPoiView(LinearLayout container, Poi poi) {
-        float d = getResources().getDisplayMetrics().density;
-
-        LinearLayout card = new LinearLayout(this);
-        card.setOrientation(LinearLayout.VERTICAL);
-        card.setPadding(
-                Math.round(16 * d),
-                Math.round(16 * d),
-                Math.round(16 * d),
-                Math.round(16 * d)
-        );
-        card.setBackgroundColor(0xFF1E1E35);
-
-        LinearLayout.LayoutParams cardParams =
-                new LinearLayout.LayoutParams(
-                        LinearLayout.LayoutParams.MATCH_PARENT,
-                        LinearLayout.LayoutParams.WRAP_CONTENT
-                );
-
-        cardParams.setMargins(0, 0, 0, Math.round(12 * d));
-
-        card.setLayoutParams(cardParams);
-
-        LinearLayout headerRow = new LinearLayout(this);
-        headerRow.setOrientation(LinearLayout.HORIZONTAL);
-
-        headerRow.setLayoutParams(
-                new LinearLayout.LayoutParams(
-                        LinearLayout.LayoutParams.MATCH_PARENT,
-                        LinearLayout.LayoutParams.WRAP_CONTENT
-                )
-        );
-
-        TextView tvName = new TextView(this);
-
-        tvName.setText(poi.getName());
-        tvName.setTextSize(16);
-        tvName.setTextColor(0xFFFFFFFF);
-        tvName.setTypeface(null, android.graphics.Typeface.BOLD);
-
-        tvName.setLayoutParams(
-                new LinearLayout.LayoutParams(
-                        0,
-                        LinearLayout.LayoutParams.WRAP_CONTENT,
-                        1f
-                )
-        );
-
-        headerRow.addView(tvName);
-
-        TextView tvType = new TextView(this);
-
-        tvType.setText(poi.getType());
-        tvType.setTextSize(11);
-        tvType.setTextColor(0xFFA89CFF);
-        tvType.setPadding(
-                Math.round(8 * d),
-                Math.round(2 * d),
-                Math.round(8 * d),
-                Math.round(2 * d)
-        );
-        tvType.setBackgroundColor(0xFF2D2D50);
-
-        headerRow.addView(tvType);
-        card.addView(headerRow);
-
-        TextView tvRating = new TextView(this);
-
-        tvRating.setText(poi.getRatingStars());
-        tvRating.setTextSize(14);
-        tvRating.setTextColor(0xFFD97706);
-        tvRating.setPadding(
-                0,
-                Math.round(6 * d),
-                0,
-                Math.round(2 * d)
-        );
-
-        card.addView(tvRating);
-
-        if (poi.getComment() != null && !poi.getComment().isEmpty()) {
-            TextView tvComment = new TextView(this);
-
-            tvComment.setText(poi.getComment());
-            tvComment.setTextSize(13);
-            tvComment.setTextColor(0xFF9999BB);
-            tvComment.setPadding(
-                    0,
-                    Math.round(4 * d),
-                    0,
-                    Math.round(6 * d)
-            );
-
-            card.addView(tvComment);
-        }
-
-        String photoBase64 = poi.getPhotoBase64();
-
-        if (photoBase64 != null && !photoBase64.isEmpty()) {
-            try {
-                byte[] bytes = android.util.Base64.decode(
-                        photoBase64,
-                        android.util.Base64.DEFAULT
-                );
-
-                Bitmap bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
-
-                if (bmp != null) {
-                    ImageView imgPoi = new ImageView(this);
-
-                    LinearLayout.LayoutParams params =
-                            new LinearLayout.LayoutParams(
-                                    Math.round(170 * d),
-                                    Math.round(105 * d)
-                            );
-
-                    params.setMargins(0, Math.round(6 * d), 0, Math.round(6 * d));
-
-                    imgPoi.setLayoutParams(params);
-                    imgPoi.setScaleType(ImageView.ScaleType.CENTER_CROP);
-                    imgPoi.setImageBitmap(bmp);
-                    imgPoi.setOnClickListener(v -> showFullPhoto(bmp));
-
-                    card.addView(imgPoi);
-                }
-
-            } catch (Exception ignored) {
-            }
-        }
-
-        TextView tvCoords = new TextView(this);
-
-        tvCoords.setText(
-                "GPS : "
-                        + String.format(java.util.Locale.FRANCE, "%.5f", poi.getLat())
-                        + ", "
-                        + String.format(java.util.Locale.FRANCE, "%.5f", poi.getLng())
-        );
-
-        tvCoords.setTextSize(10);
-        tvCoords.setTextColor(0xFF555570);
-        tvCoords.setPadding(0, Math.round(6 * d), 0, 0);
-
-        card.addView(tvCoords);
-
-        container.addView(card);
+    private Bitmap decodeBitmap(String base64) {
+        try {
+            if (base64 == null || base64.isEmpty()) return null;
+            byte[] bytes = android.util.Base64.decode(base64, android.util.Base64.DEFAULT);
+            return BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
+        } catch (Exception e) { return null; }
     }
 
-    // =========================================================================
-    // Distance
-    // =========================================================================
+    private void showFullPhoto(Bitmap bitmap) {
+        ImageView img = new ImageView(this); img.setImageBitmap(bitmap);
+        img.setScaleType(ImageView.ScaleType.FIT_CENTER); img.setPadding(16,16,16,16);
+        new AlertDialog.Builder(this).setView(img).setPositiveButton("Fermer",null).show();
+    }
 
     private double calculateTotalDistance(Trip trip) {
-        double total = 0;
-
-        List<GpsPoint> points = trip.getGpsPoints();
-
-        for (int i = 1; i < points.size(); i++) {
-            total += points.get(i - 1).distanceTo(points.get(i));
-        }
-
+        double total=0; List<GpsPoint> pts=trip.getGpsPoints();
+        for (int i=1;i<pts.size();i++) total+=pts.get(i-1).distanceTo(pts.get(i));
         return total;
     }
 
-    // =========================================================================
-    // Cycle de vie MapView
-    // =========================================================================
-
-    @Override
-    protected void onResume() {
-        super.onResume();
-
-        if (mapView != null) {
-            mapView.onResume();
-        }
+    private String getString(Map<String,Object> map, String key, String def) {
+        Object v=map.get(key); return v==null?def:String.valueOf(v);
     }
 
-    @Override
-    protected void onPause() {
-        super.onPause();
-
-        if (mapView != null) {
-            mapView.onPause();
-        }
+    private double getDouble(Map<String,Object> map, String key, double def) {
+        Object v=map.get(key);
+        if (v instanceof Number) return ((Number)v).doubleValue();
+        try { return Double.parseDouble(String.valueOf(v)); } catch (Exception e) { return def; }
     }
+
+    @Override protected void onResume() { super.onResume(); if (mapView!=null) mapView.onResume(); }
+    @Override protected void onPause()  { super.onPause();  if (mapView!=null) mapView.onPause(); }
 }
