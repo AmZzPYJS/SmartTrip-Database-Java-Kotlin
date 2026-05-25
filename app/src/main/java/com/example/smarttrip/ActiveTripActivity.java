@@ -466,7 +466,6 @@ public class ActiveTripActivity extends AppCompatActivity
 
     private void choosePoiForMemoryPhoto(String base64, double lat, double lng) {
         List<String> options = new ArrayList<>();
-
         options.add("Photo libre sur la carte");
 
         for (Poi poi : collectedPois) {
@@ -477,7 +476,6 @@ public class ActiveTripActivity extends AppCompatActivity
 
         new AlertDialog.Builder(this)
                 .setTitle("Associer cette photo")
-                .setMessage("Choisis où ranger cette photo souvenir.")
                 .setItems(items, (dialog, which) -> {
                     String linkedPoiId = null;
 
