@@ -47,14 +47,8 @@ import java.util.Set;
 public class TripDetailsActivity extends AppCompatActivity {
 
     private MapView mapView;
-
-    private final Set<String> usedMarkerPositions = new HashSet<>();
-
-    private boolean mapReady = false; // garde-fou : photos ajoutées seulement après setupMap()
+    private boolean mapReady = false;
     private static final String API_BASE_URL = "https://smarttrip-api.onrender.com";
-
-    // ── Déduplication photos côté TripDetails ────────────────────────────────
-    // Évite d'afficher 2 fois la même photo si l'API retourne des doublons
     private final Set<String> seenPhotoIds = new HashSet<>();
 
     @Override
@@ -89,7 +83,6 @@ public class TripDetailsActivity extends AppCompatActivity {
         tvStats.setText(nbGps + " points GPS • " + nbPoi + " POI • "
                 + String.format("%.1f", distanceKm) + " km parcourus");
 
-        // POI — déjà dédupliqués par TripsActivity, on affiche directement
         for (Poi poi : trip.getPois()) {
             addPoiView(layoutPois, poi);
         }
@@ -100,29 +93,12 @@ public class TripDetailsActivity extends AppCompatActivity {
         }
 
         tvBattery.setText(BatteryHelper.getStatusMessage(this));
-
-        // setupMap() PUIS photos — on attend que la carte soit prête
         setupMap(trip);
+        // loadPhotosOnce est appelé dans setupMap via mapView.post()
     }
-
-    private GeoPoint offsetIfDuplicate(GeoPoint original) {
-        String key = original.getLatitude() + "," + original.getLongitude();
-
-        if (usedMarkerPositions.contains(key)) {
-            double offset = (Math.random() - 0.5) * 0.00005; // ≈ 5 mètres
-            return new GeoPoint(
-                    original.getLatitude() + offset,
-                    original.getLongitude() + offset
-            );
-        }
-
-        usedMarkerPositions.add(key);
-        return original;
-    }
-
 
     // =========================================================================
-    // Carte — photos chargées DANS le callback mapView.post()
+    // Carte — photos chargées après que mapView soit rendu
     // =========================================================================
 
     private void setupMap(Trip trip) {
@@ -160,9 +136,7 @@ public class TripDetailsActivity extends AppCompatActivity {
 
         for (Poi poi : pois) {
             Marker marker = new Marker(mapView);
-            GeoPoint pos = offsetIfDuplicate(new GeoPoint(poi.getLat(), poi.getLng()));
-            marker.setPosition(pos);
-
+            marker.setPosition(new GeoPoint(poi.getLat(), poi.getLng()));
             marker.setTitle(poi.getName());
             marker.setSnippet(poi.getType() + " • " + poi.getRatingStars()
                     + (poi.getComment() != null && !poi.getComment().isEmpty()
@@ -191,8 +165,7 @@ public class TripDetailsActivity extends AppCompatActivity {
             mapView.post(() -> mapView.zoomToBoundingBox(bbox, true, 80));
         }
 
-        // ── Photos chargées APRÈS que la carte soit rendue ────────────────────
-        // mapView.post() garantit que mapView est initialisé avant d'ajouter des marqueurs
+        // Charger les photos UNE FOIS que la carte est rendue
         mapView.post(() -> {
             mapReady = true;
             loadPhotosOnce(trip);
@@ -200,7 +173,7 @@ public class TripDetailsActivity extends AppCompatActivity {
     }
 
     // =========================================================================
-    // Photos — UN SEUL appel, déduplication par recorded_at + lat + lng
+    // Photos — filtre strict trip_id + coordonnées valides obligatoires
     // =========================================================================
 
     private void loadPhotosOnce(Trip trip) {
@@ -217,50 +190,56 @@ public class TripDetailsActivity extends AppCompatActivity {
 
                         for (java.util.Map<String, Object> doc : response.body()) {
 
-                            // Filtre strict sur le trip_id courant
+                            // ── Filtre strict trip_id ──────────────────────────
                             String docTripId = (String) doc.get("trip_id");
-                            if (docTripId == null) continue;
-
-                            if (!docTripId.trim().equalsIgnoreCase(currentTripId.trim())) {
-                                continue;
-                            }
+                            if (docTripId == null || !docTripId.equals(currentTripId)) continue;
 
                             String base64     = (String) doc.get("photo_base64");
                             String recordedAt = (String) doc.get("recorded_at");
 
-                            // ── Déduplication photos ──────────────────────────
-                            // Clé unique = recordedAt + premiers 20 chars du base64
-                            // Évite les doublons si la même photo est stockée 2x en base
+                            // ── Déduplication ──────────────────────────────────
                             String dedupe = recordedAt + "|"
                                     + (base64 != null && base64.length() > 20
                                     ? base64.substring(0, 20) : "null");
                             if (seenPhotoIds.contains(dedupe)) continue;
                             seenPhotoIds.add(dedupe);
-                            // ──────────────────────────────────────────────────
 
+                            // ── Coordonnées GPS — VALIDATION STRICTE ──────────
+                            // Si lat=-90 ou lng=-180 → valeurs par défaut FastAPI
+                            // = photo sans coords réelles → on affiche en galerie
+                            // seulement, PAS sur la carte
                             double lat = 0, lng = 0;
-                            boolean hasCoords = false;
+                            boolean hasValidCoords = false;
                             try {
                                 java.util.Map<String, Object> loc =
                                         (java.util.Map<String, Object>) doc.get("location");
                                 if (loc != null) {
-                                    lat = ((Number) loc.get("latitude")).doubleValue();
-                                    lng = ((Number) loc.get("longitude")).doubleValue();
-                                    hasCoords = true;
+                                    double rawLat = ((Number) loc.get("latitude")).doubleValue();
+                                    double rawLng = ((Number) loc.get("longitude")).doubleValue();
+                                    // Rejeter les coords par défaut FastAPI (-90/-180)
+                                    // et les coords nulles (0.0/0.0 = Golfe de Guinée)
+                                    if (rawLat != -90.0 && rawLng != -180.0
+                                            && !(rawLat == 0.0 && rawLng == 0.0)
+                                            && rawLat >= -85.0 && rawLat <= 85.0
+                                            && rawLng >= -180.0 && rawLng <= 180.0) {
+                                        lat = rawLat;
+                                        lng = rawLng;
+                                        hasValidCoords = true;
+                                    }
                                 }
                             } catch (Exception ignored) {}
 
                             final double fLat = lat;
                             final double fLng = lng;
-                            final boolean fHasCoords = hasCoords;
-                            final String fRecordedAt = recordedAt;
+                            final boolean fHasCoords = hasValidCoords;
                             final String fBase64 = base64;
+                            final String fRecordedAt = recordedAt;
 
                             runOnUiThread(() -> {
-                                // Galerie
+                                // Toujours afficher en galerie
                                 if (fBase64 != null) addPhotoToGallery(fBase64);
 
-                                // Marqueur carte — seulement si mapView est prêt
+                                // Carte : seulement si coordonnées réelles valides
                                 if (fHasCoords && mapReady && mapView != null) {
                                     addPhotoMarkerToMap(fBase64, fLat, fLng, fRecordedAt);
                                 }
@@ -291,18 +270,18 @@ public class TripDetailsActivity extends AppCompatActivity {
             int fixedH = Math.round(130 * d);
             float ratio = (float) bitmap.getWidth() / bitmap.getHeight();
             int computedW = Math.round(fixedH * ratio);
-            int finalW = Math.max(Math.round(90 * d), Math.min(computedW, Math.round(220 * d)));
+            int finalW = Math.max(Math.round(90*d), Math.min(computedW, Math.round(220*d)));
 
             ImageView img = new ImageView(this);
             LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(finalW, fixedH);
-            params.setMargins(0, 0, Math.round(10 * d), 0);
+            params.setMargins(0, 0, Math.round(10*d), 0);
             img.setLayoutParams(params);
             img.setScaleType(ImageView.ScaleType.CENTER_CROP);
             img.setImageBitmap(bitmap);
             img.setClipToOutline(true);
             img.setOutlineProvider(new android.view.ViewOutlineProvider() {
-                @Override public void getOutline(View view, android.graphics.Outline o) {
-                    o.setRoundRect(0, 0, view.getWidth(), view.getHeight(), 8 * d);
+                @Override public void getOutline(View v, android.graphics.Outline o) {
+                    o.setRoundRect(0, 0, v.getWidth(), v.getHeight(), 8*d);
                 }
             });
             img.setOnClickListener(v -> showFullPhoto(bitmap));
@@ -314,14 +293,12 @@ public class TripDetailsActivity extends AppCompatActivity {
     }
 
     // =========================================================================
-    // Marqueur photo sur carte
+    // Marqueur photo carte — format adaptatif
     // =========================================================================
 
     private void addPhotoMarkerToMap(String base64, double lat, double lng, String recordedAt) {
         Marker marker = new Marker(mapView);
-        GeoPoint pos = offsetIfDuplicate(new GeoPoint(lat, lng));
-        marker.setPosition(pos);
-
+        marker.setPosition(new GeoPoint(lat, lng));
         marker.setTitle("📸 Photo souvenir");
         marker.setSnippet(recordedAt != null ? recordedAt : "");
         marker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM);
@@ -352,7 +329,7 @@ public class TripDetailsActivity extends AppCompatActivity {
 
     private BitmapDrawable createPhotoMarkerIcon(Bitmap photo) {
         float d = getResources().getDisplayMetrics().density;
-        int border = Math.round(3 * d);
+        int border = Math.round(3*d);
         float ratio = (float) photo.getWidth() / photo.getHeight();
         int mW, mH;
         if (ratio >= 1.2f)       { mW = Math.round(80*d); mH = Math.round(52*d); }
@@ -365,16 +342,15 @@ public class TripDetailsActivity extends AppCompatActivity {
         paintBg.setColor(Color.WHITE);
         canvas.drawRoundRect(0, 0, mW, mH, 8*d, 8*d, paintBg);
 
-        int innerW = mW - border*2, innerH = mH - border*2;
+        int innerW = mW-border*2, innerH = mH-border*2;
         float scaleX = (float)innerW/photo.getWidth(), scaleY = (float)innerH/photo.getHeight();
         float scale = Math.max(scaleX, scaleY);
         int scaledW = Math.round(photo.getWidth()*scale), scaledH = Math.round(photo.getHeight()*scale);
         Bitmap scaled = Bitmap.createScaledBitmap(photo, scaledW, scaledH, true);
         int cropX = Math.max(0,(scaledW-innerW)/2), cropY = Math.max(0,(scaledH-innerH)/2);
         int safeCropW = Math.min(innerW, scaledW-cropX), safeCropH = Math.min(innerH, scaledH-cropY);
-        if (safeCropW > 0 && safeCropH > 0) {
-            canvas.drawBitmap(Bitmap.createBitmap(scaled,cropX,cropY,safeCropW,safeCropH), border, border, null);
-        }
+        if (safeCropW > 0 && safeCropH > 0)
+            canvas.drawBitmap(Bitmap.createBitmap(scaled, cropX, cropY, safeCropW, safeCropH), border, border, null);
         return new BitmapDrawable(getResources(), result);
     }
 
@@ -385,70 +361,47 @@ public class TripDetailsActivity extends AppCompatActivity {
     private void showQrDialog(Trip trip) {
         String tripUrl = API_BASE_URL + "/trip/" + trip.getId();
         Bitmap qrBitmap = generateQrCode(tripUrl, 600);
-        if (qrBitmap == null) {
-            Toast.makeText(this, "Erreur génération QR code", Toast.LENGTH_SHORT).show();
-            return;
-        }
-        LinearLayout dialogLayout = new LinearLayout(this);
-        dialogLayout.setOrientation(LinearLayout.VERTICAL);
-        dialogLayout.setPadding(48, 32, 48, 16);
-        dialogLayout.setGravity(Gravity.CENTER);
+        if (qrBitmap == null) { Toast.makeText(this, "Erreur QR code", Toast.LENGTH_SHORT).show(); return; }
 
-        TextView tvTitle = new TextView(this);
-        tvTitle.setText("Partager « " + trip.getTitle() + " »");
-        tvTitle.setTextSize(16); tvTitle.setTextColor(0xFF1A1A2E);
-        tvTitle.setTypeface(null, android.graphics.Typeface.BOLD);
-        tvTitle.setGravity(Gravity.CENTER); tvTitle.setPadding(0,0,0,16);
-        dialogLayout.addView(tvTitle);
-
+        LinearLayout dl = new LinearLayout(this);
+        dl.setOrientation(LinearLayout.VERTICAL); dl.setPadding(48,32,48,16); dl.setGravity(Gravity.CENTER);
+        TextView tvT = new TextView(this); tvT.setText("Partager « " + trip.getTitle() + " »");
+        tvT.setTextSize(16); tvT.setTextColor(0xFF1A1A2E);
+        tvT.setTypeface(null, android.graphics.Typeface.BOLD);
+        tvT.setGravity(Gravity.CENTER); tvT.setPadding(0,0,0,16); dl.addView(tvT);
         ImageView ivQr = new ImageView(this);
         int qrSize = Math.round(260 * getResources().getDisplayMetrics().density);
         ivQr.setLayoutParams(new LinearLayout.LayoutParams(qrSize, qrSize));
-        ivQr.setImageBitmap(qrBitmap); ivQr.setScaleType(ImageView.ScaleType.FIT_CENTER);
-        dialogLayout.addView(ivQr);
-
-        TextView tvUrl = new TextView(this);
-        tvUrl.setText(tripUrl); tvUrl.setTextSize(10); tvUrl.setTextColor(0xFF6C63FF);
-        tvUrl.setGravity(Gravity.CENTER); tvUrl.setPadding(0,12,0,0);
-        dialogLayout.addView(tvUrl);
-
-        TextView tvInstr = new TextView(this);
-        tvInstr.setText("Scannez ce QR code pour accéder au voyage");
-        tvInstr.setTextSize(11); tvInstr.setTextColor(0xFF9999BB);
-        tvInstr.setGravity(Gravity.CENTER); tvInstr.setPadding(0,4,0,16);
-        dialogLayout.addView(tvInstr);
-
-        AlertDialog dialog = new AlertDialog.Builder(this)
-                .setView(dialogLayout).setPositiveButton("Fermer", null)
-                .setNeutralButton("📤 Partager le lien", null).create();
+        ivQr.setImageBitmap(qrBitmap); ivQr.setScaleType(ImageView.ScaleType.FIT_CENTER); dl.addView(ivQr);
+        TextView tvUrl = new TextView(this); tvUrl.setText(tripUrl);
+        tvUrl.setTextSize(10); tvUrl.setTextColor(0xFF6C63FF); tvUrl.setGravity(Gravity.CENTER); tvUrl.setPadding(0,12,0,0); dl.addView(tvUrl);
+        TextView tvI = new TextView(this); tvI.setText("Scannez ce QR code pour accéder au voyage");
+        tvI.setTextSize(11); tvI.setTextColor(0xFF9999BB); tvI.setGravity(Gravity.CENTER); tvI.setPadding(0,4,0,16); dl.addView(tvI);
+        AlertDialog dialog = new AlertDialog.Builder(this).setView(dl)
+                .setPositiveButton("Fermer", null).setNeutralButton("📤 Partager le lien", null).create();
         dialog.show();
-        dialog.getButton(AlertDialog.BUTTON_NEUTRAL)
-                .setOnClickListener(v -> shareLink(trip.getTitle(), tripUrl));
+        dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener(v -> shareLink(trip.getTitle(), tripUrl));
     }
 
     private Bitmap generateQrCode(String content, int size) {
         try {
-            QRCodeWriter writer = new QRCodeWriter();
-            BitMatrix bitMatrix = writer.encode(content, BarcodeFormat.QR_CODE, size, size);
+            BitMatrix bm = new QRCodeWriter().encode(content, BarcodeFormat.QR_CODE, size, size);
             Bitmap bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.RGB_565);
-            for (int x = 0; x < size; x++)
-                for (int y = 0; y < size; y++)
-                    bitmap.setPixel(x, y, bitMatrix.get(x,y) ? 0xFF6C63FF : 0xFFFFFFFF);
+            for (int x = 0; x < size; x++) for (int y = 0; y < size; y++)
+                bitmap.setPixel(x, y, bm.get(x,y) ? 0xFF6C63FF : 0xFFFFFFFF);
             return bitmap;
         } catch (WriterException e) { return null; }
     }
 
-    private void shareLink(String tripTitle, String tripUrl) {
-        Intent shareIntent = new Intent(Intent.ACTION_SEND);
-        shareIntent.setType("text/plain");
-        shareIntent.putExtra(Intent.EXTRA_SUBJECT, "SmartTrip — " + tripTitle);
-        shareIntent.putExtra(Intent.EXTRA_TEXT,
-                "Découvre mon voyage « " + tripTitle + " » sur SmartTrip :\n" + tripUrl);
-        startActivity(Intent.createChooser(shareIntent, "Partager le voyage via…"));
+    private void shareLink(String title, String url) {
+        Intent i = new Intent(Intent.ACTION_SEND); i.setType("text/plain");
+        i.putExtra(Intent.EXTRA_SUBJECT, "SmartTrip — " + title);
+        i.putExtra(Intent.EXTRA_TEXT, "Découvre mon voyage « " + title + " » sur SmartTrip :\n" + url);
+        startActivity(Intent.createChooser(i, "Partager le voyage via…"));
     }
 
     // =========================================================================
-    // Marqueur POI rouge
+    // Marqueur POI
     // =========================================================================
 
     private BitmapDrawable createPoiMarker() {
@@ -467,10 +420,9 @@ public class TripDetailsActivity extends AppCompatActivity {
     }
 
     private void showFullPhoto(Bitmap bitmap) {
-        ImageView fullImg = new ImageView(this);
-        fullImg.setImageBitmap(bitmap); fullImg.setScaleType(ImageView.ScaleType.FIT_CENTER);
-        fullImg.setPadding(16,16,16,16);
-        new AlertDialog.Builder(this).setView(fullImg).setPositiveButton("Fermer", null).show();
+        ImageView img = new ImageView(this); img.setImageBitmap(bitmap);
+        img.setScaleType(ImageView.ScaleType.FIT_CENTER); img.setPadding(16,16,16,16);
+        new AlertDialog.Builder(this).setView(img).setPositiveButton("Fermer", null).show();
     }
 
     @Override protected void onResume() { super.onResume(); if (mapView != null) mapView.onResume(); }
@@ -487,7 +439,7 @@ public class TripDetailsActivity extends AppCompatActivity {
         float d = getResources().getDisplayMetrics().density;
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
-        card.setPadding(Math.round(16*d),Math.round(16*d),Math.round(16*d),Math.round(16*d));
+        card.setPadding(Math.round(16*d), Math.round(16*d), Math.round(16*d), Math.round(16*d));
         card.setBackgroundColor(0xFF1E1E35);
         LinearLayout.LayoutParams cp = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
@@ -524,8 +476,7 @@ public class TripDetailsActivity extends AppCompatActivity {
                 Bitmap bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
                 if (bmp != null) {
                     ImageView imgPoi = new ImageView(this);
-                    imgPoi.setLayoutParams(new LinearLayout.LayoutParams(
-                            Math.round(160*d), Math.round(100*d)));
+                    imgPoi.setLayoutParams(new LinearLayout.LayoutParams(Math.round(160*d), Math.round(100*d)));
                     imgPoi.setScaleType(ImageView.ScaleType.CENTER_CROP);
                     imgPoi.setImageBitmap(bmp);
                     imgPoi.setOnClickListener(v -> showFullPhoto(bmp));
@@ -535,8 +486,7 @@ public class TripDetailsActivity extends AppCompatActivity {
         }
 
         TextView tvCoords = new TextView(this);
-        tvCoords.setText("GPS : " + String.format("%.5f", poi.getLat())
-                + ", " + String.format("%.5f", poi.getLng()));
+        tvCoords.setText("GPS : " + String.format("%.5f", poi.getLat()) + ", " + String.format("%.5f", poi.getLng()));
         tvCoords.setTextSize(10); tvCoords.setTextColor(0xFF555570);
         tvCoords.setPadding(0,Math.round(6*d),0,0); card.addView(tvCoords);
         container.addView(card);
