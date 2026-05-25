@@ -63,7 +63,7 @@ public class MainActivity extends AppCompatActivity {
     private void wakeUpServer() {
         new Thread(() -> {
             try {
-                String baseUrl = "https://travel-tracker-backend-j5q0.onrender.com";
+                String baseUrl = "https://travel-tracker-backend-j5q0.onrender.com/";
                 java.net.URL url = new java.net.URL(baseUrl);
                 java.net.HttpURLConnection conn =
                         (java.net.HttpURLConnection) url.openConnection();
