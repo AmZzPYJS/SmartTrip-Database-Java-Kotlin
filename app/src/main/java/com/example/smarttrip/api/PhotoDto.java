@@ -2,11 +2,6 @@ package com.example.smarttrip.api;
 
 import com.google.gson.annotations.SerializedName;
 
-/**
- * DTO pour envoyer une photo souvenir au backend.
- * Une photo souvenir n'est PAS liée à un POI — c'est une capture
- * spontanée pendant le voyage avec ses métadonnées GPS.
- */
 public class PhotoDto {
 
     @SerializedName("user_id")
@@ -14,6 +9,9 @@ public class PhotoDto {
 
     @SerializedName("trip_id")
     private String tripId;
+
+    @SerializedName("trip_name")
+    private String tripName;
 
     @SerializedName("location")
     private LocationDto location;
@@ -24,12 +22,18 @@ public class PhotoDto {
     @SerializedName("recorded_at")
     private String recordedAt;
 
-    public PhotoDto(String userId, String tripId, LocationDto location,
-                    String photoBase64, String recordedAt) {
+    @SerializedName("linked_poi_id")
+    private String linkedPoiId;
+
+    public PhotoDto(String userId, String tripId, String tripName,
+                    LocationDto location, String photoBase64,
+                    String recordedAt, String linkedPoiId) {
         this.userId = userId;
         this.tripId = tripId;
+        this.tripName = tripName;
         this.location = location;
         this.photoBase64 = photoBase64;
         this.recordedAt = recordedAt;
+        this.linkedPoiId = linkedPoiId;
     }
 }
