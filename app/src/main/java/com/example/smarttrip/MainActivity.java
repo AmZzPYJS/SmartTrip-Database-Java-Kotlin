@@ -2,6 +2,7 @@ package com.example.smarttrip;
 
 import android.content.Intent;
 import android.os.Bundle;
+import android.util.Log;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
@@ -17,16 +18,22 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 public class MainActivity extends AppCompatActivity {
 
+    private static final String TAG = "SmartTripCloud";
+    private static final String USER_ID = "amin";
+
     private TextView tvBatteryStatus;
     private TextView tvStatsCloud;
 
-    // Compteurs agrégés depuis les 3 endpoints
+    // Compteurs agrégés depuis les endpoints cloud
     private int statVoyages = 0;
-    private int statGps     = 0;
-    private int statPois    = 0;
-    private int statPhotos  = 0;
+    private int statGps = 0;
+    private int statPois = 0;
+    private int statPhotos = 0;
 
-    // Combien d'appels ont répondu (sur 3 attendus)
+    // Permet de savoir si une vraie erreur réseau / serveur a eu lieu
+    private boolean cloudError = false;
+
+    // Combien d'appels ont répondu : GPS + POI + Photos = 3
     private final AtomicInteger responseCount = new AtomicInteger(0);
 
     @Override
@@ -36,16 +43,16 @@ public class MainActivity extends AppCompatActivity {
 
         LinearLayout btnStartTrip = findViewById(R.id.btnStartTrip);
         LinearLayout btnViewTrips = findViewById(R.id.btnViewTrips);
-        LinearLayout btnSettings  = findViewById(R.id.btnSettings);
+        LinearLayout btnSettings = findViewById(R.id.btnSettings);
 
         tvBatteryStatus = findViewById(R.id.tvBatteryStatus);
-        tvStatsCloud    = findViewById(R.id.tvStatsCloud);
+        tvStatsCloud = findViewById(R.id.tvStatsCloud);
 
         btnStartTrip.setOnClickListener(v -> showNameTripDialog());
         btnViewTrips.setOnClickListener(v -> startActivity(new Intent(this, TripsActivity.class)));
         btnSettings.setOnClickListener(v -> startActivity(new Intent(this, SettingsActivity.class)));
 
-        // Réveil anticipé de Render.com (cold start ~15-30s sans ça)
+        // Réveil anticipé du serveur Render
         wakeUpServer();
     }
 
@@ -65,84 +72,140 @@ public class MainActivity extends AppCompatActivity {
             try {
                 String baseUrl = "https://travel-tracker-backend-j5q0.onrender.com/";
                 java.net.URL url = new java.net.URL(baseUrl);
+
                 java.net.HttpURLConnection conn =
                         (java.net.HttpURLConnection) url.openConnection();
-                conn.setConnectTimeout(5000);
-                conn.setReadTimeout(5000);
+
+                conn.setConnectTimeout(15000);
+                conn.setReadTimeout(15000);
                 conn.setRequestMethod("GET");
-                conn.getResponseCode();
+
+                int responseCode = conn.getResponseCode();
+                Log.d(TAG, "Wake up server response code: " + responseCode);
+
                 conn.disconnect();
-            } catch (Exception ignored) {}
+
+            } catch (Exception e) {
+                Log.e(TAG, "Erreur pendant le réveil du serveur Render", e);
+            }
         }).start();
     }
 
     // =========================================================================
-    // Stats cloud complètes (GPS + POI + photos)
+    // Stats cloud complètes : GPS + POI + Photos
     // =========================================================================
 
     private void loadStats() {
         tvStatsCloud.setText("☁  Connexion au cloud…");
 
-        // Reset
+        // Reset des valeurs
         statVoyages = 0;
-        statGps     = 0;
-        statPois    = 0;
-        statPhotos  = 0;
+        statGps = 0;
+        statPois = 0;
+        statPhotos = 0;
+        cloudError = false;
         responseCount.set(0);
 
         // 1. Points GPS
-        ApiClient.getInstance().getApiService().getUserGps("amin")
+        ApiClient.getInstance().getApiService().getUserGps(USER_ID)
                 .enqueue(new retrofit2.Callback<List<Map<String, Object>>>() {
                     @Override
-                    public void onResponse(retrofit2.Call<List<Map<String, Object>>> call,
-                                           retrofit2.Response<List<Map<String, Object>>> response) {
+                    public void onResponse(
+                            retrofit2.Call<List<Map<String, Object>>> call,
+                            retrofit2.Response<List<Map<String, Object>>> response
+                    ) {
                         if (response.isSuccessful() && response.body() != null) {
                             Set<String> tripIds = new HashSet<>();
+
                             for (Map<String, Object> doc : response.body()) {
-                                String tripId = (String) doc.get("trip_id");
-                                if (tripId != null) tripIds.add(tripId);
+                                Object tripIdObj = doc.get("trip_id");
+
+                                if (tripIdObj != null) {
+                                    tripIds.add(String.valueOf(tripIdObj));
+                                }
                             }
+
                             statVoyages = tripIds.size();
-                            statGps     = response.body().size();
+                            statGps = response.body().size();
+
+                            Log.d(TAG, "GPS OK : " + statGps + " point(s)");
+                        } else {
+                            cloudError = true;
+                            Log.e(TAG, "Erreur HTTP GPS : " + response.code());
                         }
+
                         checkAndUpdateStats();
                     }
+
                     @Override
-                    public void onFailure(retrofit2.Call<List<Map<String, Object>>> call, Throwable t) {
+                    public void onFailure(
+                            retrofit2.Call<List<Map<String, Object>>> call,
+                            Throwable t
+                    ) {
+                        cloudError = true;
+                        Log.e(TAG, "Échec appel GPS", t);
                         checkAndUpdateStats();
                     }
                 });
 
         // 2. POI
-        ApiClient.getInstance().getApiService().getUserPois("amin")
+        ApiClient.getInstance().getApiService().getUserPois(USER_ID)
                 .enqueue(new retrofit2.Callback<List<Map<String, Object>>>() {
                     @Override
-                    public void onResponse(retrofit2.Call<List<Map<String, Object>>> call,
-                                           retrofit2.Response<List<Map<String, Object>>> response) {
+                    public void onResponse(
+                            retrofit2.Call<List<Map<String, Object>>> call,
+                            retrofit2.Response<List<Map<String, Object>>> response
+                    ) {
                         if (response.isSuccessful() && response.body() != null) {
                             statPois = response.body().size();
+
+                            Log.d(TAG, "POI OK : " + statPois + " POI");
+                        } else {
+                            cloudError = true;
+                            Log.e(TAG, "Erreur HTTP POI : " + response.code());
                         }
+
                         checkAndUpdateStats();
                     }
+
                     @Override
-                    public void onFailure(retrofit2.Call<List<Map<String, Object>>> call, Throwable t) {
+                    public void onFailure(
+                            retrofit2.Call<List<Map<String, Object>>> call,
+                            Throwable t
+                    ) {
+                        cloudError = true;
+                        Log.e(TAG, "Échec appel POI", t);
                         checkAndUpdateStats();
                     }
                 });
 
         // 3. Photos
-        ApiClient.getInstance().getApiService().getUserPhotos("amin")
+        ApiClient.getInstance().getApiService().getUserPhotos(USER_ID)
                 .enqueue(new retrofit2.Callback<List<Map<String, Object>>>() {
                     @Override
-                    public void onResponse(retrofit2.Call<List<Map<String, Object>>> call,
-                                           retrofit2.Response<List<Map<String, Object>>> response) {
+                    public void onResponse(
+                            retrofit2.Call<List<Map<String, Object>>> call,
+                            retrofit2.Response<List<Map<String, Object>>> response
+                    ) {
                         if (response.isSuccessful() && response.body() != null) {
                             statPhotos = response.body().size();
+
+                            Log.d(TAG, "Photos OK : " + statPhotos + " photo(s)");
+                        } else {
+                            cloudError = true;
+                            Log.e(TAG, "Erreur HTTP Photos : " + response.code());
                         }
+
                         checkAndUpdateStats();
                     }
+
                     @Override
-                    public void onFailure(retrofit2.Call<List<Map<String, Object>>> call, Throwable t) {
+                    public void onFailure(
+                            retrofit2.Call<List<Map<String, Object>>> call,
+                            Throwable t
+                    ) {
+                        cloudError = true;
+                        Log.e(TAG, "Échec appel Photos", t);
                         checkAndUpdateStats();
                     }
                 });
@@ -150,19 +213,23 @@ public class MainActivity extends AppCompatActivity {
 
     /**
      * Appelé après chaque réponse API.
-     * Met à jour l'UI seulement quand les 3 appels ont répondu.
+     * Met à jour l'interface seulement quand les 3 appels ont répondu.
      */
     private void checkAndUpdateStats() {
         if (responseCount.incrementAndGet() == 3) {
             final String statsText;
-            if (statVoyages == 0 && statGps == 0) {
+
+            if (cloudError) {
                 statsText = "☁  Cloud non connecté";
+            } else if (statVoyages == 0 && statGps == 0 && statPois == 0 && statPhotos == 0) {
+                statsText = "☁  Cloud connecté · aucun voyage";
             } else {
                 statsText = statVoyages + " voyage(s)  ·  "
                         + statGps + " pts GPS\n"
                         + statPois + " POI  ·  "
                         + statPhotos + " photo(s)";
             }
+
             runOnUiThread(() -> tvStatsCloud.setText(statsText));
         }
     }
@@ -182,10 +249,14 @@ public class MainActivity extends AppCompatActivity {
                 .setView(input)
                 .setPositiveButton("Démarrer", (dialog, which) -> {
                     String tripName = input.getText().toString().trim();
+
                     if (tripName.isEmpty()) {
                         tripName = "Voyage du " + new java.text.SimpleDateFormat(
-                                "dd/MM/yyyy", java.util.Locale.FRANCE).format(new java.util.Date());
+                                "dd/MM/yyyy",
+                                java.util.Locale.FRANCE
+                        ).format(new java.util.Date());
                     }
+
                     Intent intent = new Intent(this, ActiveTripActivity.class);
                     intent.putExtra("trip_name", tripName);
                     startActivity(intent);
@@ -199,7 +270,8 @@ public class MainActivity extends AppCompatActivity {
     // =========================================================================
 
     private void updateBatteryStatus() {
-        if (tvBatteryStatus != null)
+        if (tvBatteryStatus != null) {
             tvBatteryStatus.setText(BatteryHelper.getStatusMessage(this));
+        }
     }
 }
