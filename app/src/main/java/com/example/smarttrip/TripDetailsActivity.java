@@ -48,7 +48,7 @@ public class TripDetailsActivity extends AppCompatActivity {
 
     private MapView mapView;
     private boolean mapReady = false;
-    private static final String API_BASE_URL = "https://smarttrip-api.onrender.com";
+    private static final String API_BASE_URL = "https://travel-tracker-backend-j5q0.onrender.com";
     private final Set<String> seenPhotoIds = new HashSet<>();
 
     @Override
