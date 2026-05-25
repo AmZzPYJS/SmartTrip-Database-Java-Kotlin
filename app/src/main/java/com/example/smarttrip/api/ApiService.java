@@ -11,39 +11,32 @@ import retrofit2.http.Path;
 
 public interface ApiService {
 
-    @POST("/gps")
+    // GPS
+    @POST("gps")
     Call<Map<String, Object>> sendGps(@Body GpsDataDto data);
 
-    @GET("/gps")
-    Call<List<Map<String, Object>>> getAllGps();
-
-    @GET("/gps/{user_id}")
+    @GET("gps/{user_id}")
     Call<List<Map<String, Object>>> getUserGps(@Path("user_id") String userId);
 
-    @POST("/pois")
+    // POI — "/poi" et non "/pois"
+    @POST("poi")
     Call<Map<String, Object>> sendPoi(@Body PoiDto poi);
 
-    @GET("/pois")
-    Call<List<Map<String, Object>>> getAllPois();
-
-    @GET("/pois/{user_id}")
+    @GET("poi/{user_id}")
     Call<List<Map<String, Object>>> getUserPois(@Path("user_id") String userId);
 
-    @POST("/photos")
+    // Photos
+    @POST("photo")
     Call<Map<String, Object>> sendPhoto(@Body PhotoDto photo);
 
-    @GET("/photos")
-    Call<List<Map<String, Object>>> getAllPhotos();
-
-    @GET("/photos/{user_id}")
+    @GET("photos/{user_id}")
     Call<List<Map<String, Object>>> getUserPhotos(@Path("user_id") String userId);
 
-    @DELETE("/trips/{trip_id}")
+    // Suppression voyage — "/trip" et non "/trips"
+    @DELETE("trip/{trip_id}")
     Call<Map<String, Object>> deleteTrip(@Path("trip_id") String tripId);
 
-    // ── Nouveau endpoint — partage public d'un voyage ─────────────────────────
-    // Retourne GPS + POI + photos d'un voyage sans authentification
-    // Utilisé pour générer le lien QR code
-    @GET("/trip/{trip_id}")
+    // Partage public QR code
+    @GET("trip/{trip_id}")
     Call<Map<String, Object>> getTripPublic(@Path("trip_id") String tripId);
 }
