@@ -22,6 +22,10 @@ public class PhotoEntity {
     public String photoBase64;
     public String recordedAt;
 
+    // null = photo libre sur la carte
+    // "poi_..." = photo liée à un POI précis
+    public String linkedPoiId;
+
     // false = pas encore envoyé au cloud
     public boolean synced = false;
 }

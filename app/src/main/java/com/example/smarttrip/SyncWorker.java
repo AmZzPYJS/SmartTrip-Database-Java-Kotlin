@@ -22,10 +22,7 @@ import com.example.smarttrip.db.GpsPointEntity;
 import com.example.smarttrip.db.PhotoEntity;
 import com.example.smarttrip.db.PoiEntity;
 
-import java.text.SimpleDateFormat;
-import java.util.Date;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 
 import retrofit2.Response;
@@ -35,11 +32,8 @@ import retrofit2.Response;
  *
  * Fonctionnement :
  * 1. Lit tous les GPS/POI/photos avec synced=false dans Room
- * 2. Les envoie à l'API FastAPI de manière synchrone (Worker thread)
- * 3. Marque chaque entrée synced=true après confirmation HTTP 200/201
- *
- * Planification : appelez SyncWorker.schedule(context) dès qu'un point
- * est sauvegardé localement. WorkManager gère la deduplication automatiquement.
+ * 2. Les envoie à l'API FastAPI de manière synchrone
+ * 3. Marque chaque entrée synced=true après confirmation HTTP
  */
 public class SyncWorker extends Worker {
 
@@ -55,96 +49,151 @@ public class SyncWorker extends Worker {
         AppDatabase db = AppDatabase.getInstance(getApplicationContext());
         boolean allOk = true;
 
-        // ── 1. Sync points GPS ────────────────────────────────────────────────
+        // ── 1. Sync GPS ───────────────────────────────────────────────────────
         List<GpsPointEntity> unsyncedGps = db.gpsPointDao().getUnsynced();
         Log.d(TAG, "GPS à synchroniser : " + unsyncedGps.size());
 
         for (GpsPointEntity e : unsyncedGps) {
             try {
-                LocationDto loc = new LocationDto(e.latitude, e.longitude, e.altitude);
-                BatteryDto  bat = new BatteryDto(e.batteryLevel, e.batteryCharging);
-                GpsDataDto  dto = new GpsDataDto(e.userId, e.tripId, e.tripName, loc, bat, e.recordedAt);
+                LocationDto location = new LocationDto(
+                        e.latitude,
+                        e.longitude,
+                        e.altitude
+                );
 
-                Response<Map<String, Object>> resp =
-                        ApiClient.getInstance().getApiService().sendGps(dto).execute();
+                BatteryDto battery = new BatteryDto(
+                        e.batteryLevel,
+                        e.batteryCharging
+                );
 
-                if (resp.isSuccessful()) {
+                GpsDataDto dto = new GpsDataDto(
+                        e.userId,
+                        e.tripId,
+                        e.tripName,
+                        location,
+                        battery,
+                        e.recordedAt
+                );
+
+                Response<Map<String, Object>> response =
+                        ApiClient.getInstance()
+                                .getApiService()
+                                .sendGps(dto)
+                                .execute();
+
+                if (response.isSuccessful()) {
                     db.gpsPointDao().markSynced(e.id);
                     Log.d(TAG, "GPS synced id=" + e.id);
                 } else {
-                    Log.w(TAG, "GPS sync failed HTTP " + resp.code() + " id=" + e.id);
+                    Log.w(TAG, "GPS sync failed HTTP " + response.code() + " id=" + e.id);
                     allOk = false;
                 }
+
             } catch (Exception ex) {
                 Log.e(TAG, "GPS sync exception id=" + e.id, ex);
                 allOk = false;
             }
         }
 
-        // ── 2. Sync POI ───────────────────────────────────────────────────────
+        // ── 2. Sync POI avec poi_id ───────────────────────────────────────────
         List<PoiEntity> unsyncedPois = db.poiDao().getUnsynced();
         Log.d(TAG, "POI à synchroniser : " + unsyncedPois.size());
 
         for (PoiEntity e : unsyncedPois) {
             try {
-                LocationDto loc = new LocationDto(e.latitude, e.longitude, 0.0);
-                PoiDto dto = new PoiDto(
-                        e.userId, e.tripId, e.tripName,
-                        e.name, e.type, loc,
-                        e.rating, e.comment, e.recordedAt, e.photoBase64
+                LocationDto location = new LocationDto(
+                        e.latitude,
+                        e.longitude,
+                        0.0
                 );
 
-                Response<Map<String, Object>> resp =
-                        ApiClient.getInstance().getApiService().sendPoi(dto).execute();
+                String poiId = e.poiId;
 
-                if (resp.isSuccessful()) {
+                if (poiId == null || poiId.isEmpty()) {
+                    poiId = "poi_" + System.currentTimeMillis() + "_" + e.id;
+                }
+
+                PoiDto dto = new PoiDto(
+                        poiId,
+                        e.userId,
+                        e.tripId,
+                        e.tripName,
+                        e.name,
+                        e.type,
+                        location,
+                        e.rating,
+                        e.comment,
+                        e.recordedAt,
+                        e.photoBase64
+                );
+
+                Response<Map<String, Object>> response =
+                        ApiClient.getInstance()
+                                .getApiService()
+                                .sendPoi(dto)
+                                .execute();
+
+                if (response.isSuccessful()) {
                     db.poiDao().markSynced(e.id);
-                    Log.d(TAG, "POI synced id=" + e.id);
+                    Log.d(TAG, "POI synced id=" + e.id + " poiId=" + poiId);
                 } else {
-                    Log.w(TAG, "POI sync failed HTTP " + resp.code() + " id=" + e.id);
+                    Log.w(TAG, "POI sync failed HTTP " + response.code() + " id=" + e.id);
                     allOk = false;
                 }
+
             } catch (Exception ex) {
                 Log.e(TAG, "POI sync exception id=" + e.id, ex);
                 allOk = false;
             }
         }
 
-        // ── 3. Sync Photos ────────────────────────────────────────────────────
+        // ── 3. Sync Photos avec linked_poi_id ─────────────────────────────────
         List<PhotoEntity> unsyncedPhotos = db.photoDao().getUnsynced();
         Log.d(TAG, "Photos à synchroniser : " + unsyncedPhotos.size());
 
         for (PhotoEntity e : unsyncedPhotos) {
             try {
-                LocationDto loc = new LocationDto(e.latitude, e.longitude, 0.0);
-                PhotoDto dto = new PhotoDto(e.userId, e.tripId, loc, e.photoBase64, e.recordedAt);
+                LocationDto location = new LocationDto(
+                        e.latitude,
+                        e.longitude,
+                        0.0
+                );
 
-                Response<Map<String, Object>> resp =
-                        ApiClient.getInstance().getApiService().sendPhoto(dto).execute();
+                PhotoDto dto = new PhotoDto(
+                        e.userId,
+                        e.tripId,
+                        e.tripName,
+                        location,
+                        e.photoBase64,
+                        e.recordedAt,
+                        e.linkedPoiId
+                );
 
-                if (resp.isSuccessful()) {
+                Response<Map<String, Object>> response =
+                        ApiClient.getInstance()
+                                .getApiService()
+                                .sendPhoto(dto)
+                                .execute();
+
+                if (response.isSuccessful()) {
                     db.photoDao().markSynced(e.id);
-                    Log.d(TAG, "Photo synced id=" + e.id);
+                    Log.d(TAG, "Photo synced id=" + e.id + " linkedPoiId=" + e.linkedPoiId);
                 } else {
-                    Log.w(TAG, "Photo sync failed HTTP " + resp.code() + " id=" + e.id);
+                    Log.w(TAG, "Photo sync failed HTTP " + response.code() + " id=" + e.id);
                     allOk = false;
                 }
+
             } catch (Exception ex) {
                 Log.e(TAG, "Photo sync exception id=" + e.id, ex);
                 allOk = false;
             }
         }
 
-        // Si certains éléments ont échoué → RETRY (WorkManager replanifie)
         return allOk ? Result.success() : Result.retry();
     }
 
     /**
      * Planifie une synchronisation dès que le réseau est disponible.
-     * WorkManager déduplique automatiquement si une tâche est déjà en attente.
-     *
-     * Appelez cette méthode après chaque sauvegarde Room :
-     *   SyncWorker.schedule(context);
      */
     public static void schedule(Context context) {
         Constraints constraints = new Constraints.Builder()
@@ -155,13 +204,12 @@ public class SyncWorker extends Worker {
                 .setConstraints(constraints)
                 .build();
 
-        // KEEP_EXISTING : si une sync est déjà planifiée, on ne double pas
         WorkManager.getInstance(context).enqueueUniqueWork(
                 "smarttrip_sync",
                 androidx.work.ExistingWorkPolicy.KEEP,
                 request
         );
 
-        Log.d(TAG, "SyncWorker planifié (réseau requis)");
+        Log.d(TAG, "SyncWorker planifié");
     }
 }

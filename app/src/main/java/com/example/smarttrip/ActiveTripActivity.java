@@ -167,7 +167,7 @@ public class ActiveTripActivity extends AppCompatActivity
         btnStopTrip.setOnClickListener(v ->
                 new AlertDialog.Builder(this)
                         .setTitle("Terminer le voyage ?")
-                        .setMessage("Le voyage sera terminé et les données seront visibles dans les anciens voyages.")
+                        .setMessage("Le voyage sera terminé et visible dans les anciens voyages.")
                         .setPositiveButton("Terminer", (dialog, which) -> stopTrip())
                         .setNegativeButton("Continuer", null)
                         .show()
@@ -177,10 +177,6 @@ public class ActiveTripActivity extends AppCompatActivity
 
         handler.post(batteryUpdater);
     }
-
-    // =========================================================================
-    // Permissions + service GPS
-    // =========================================================================
 
     private void requestPermissionsAndStartService() {
         List<String> needed = new ArrayList<>();
@@ -238,13 +234,8 @@ public class ActiveTripActivity extends AppCompatActivity
         serviceIntent.putExtra(GpsTrackingService.EXTRA_USER_ID, "amin");
 
         ContextCompat.startForegroundService(this, serviceIntent);
-
         bindService(serviceIntent, serviceConnection, BIND_AUTO_CREATE);
     }
-
-    // =========================================================================
-    // Callbacks GPS
-    // =========================================================================
 
     @Override
     public void onGpsPointCollected(GpsPoint point, int total, String accuracyLabel) {
@@ -260,10 +251,6 @@ public class ActiveTripActivity extends AppCompatActivity
                 tvCloudCount.setText(total + " points envoyés au cloud")
         );
     }
-
-    // =========================================================================
-    // Lifecycle
-    // =========================================================================
 
     @Override
     protected void onStart() {
@@ -295,10 +282,6 @@ public class ActiveTripActivity extends AppCompatActivity
         handler.removeCallbacksAndMessages(null);
     }
 
-    // =========================================================================
-    // Terminer voyage
-    // =========================================================================
-
     private void stopTrip() {
         if (serviceBound && gpsService != null) {
             gpsService.stopTrip();
@@ -310,10 +293,6 @@ public class ActiveTripActivity extends AppCompatActivity
         finish();
     }
 
-    // =========================================================================
-    // Batterie
-    // =========================================================================
-
     private final Runnable batteryUpdater = new Runnable() {
         @Override
         public void run() {
@@ -324,10 +303,6 @@ public class ActiveTripActivity extends AppCompatActivity
             handler.postDelayed(this, 30_000);
         }
     };
-
-    // =========================================================================
-    // Ajouter POI
-    // =========================================================================
 
     private void showAddPoiDialog() {
         GpsPoint lastPoint = null;
@@ -439,10 +414,6 @@ public class ActiveTripActivity extends AppCompatActivity
                 .setNegativeButton("Annuler", null)
                 .show();
     }
-
-    // =========================================================================
-    // Photos souvenirs
-    // =========================================================================
 
     private void takeMemoryPhoto() {
         if (serviceBound && gpsService != null && gpsService.getCollectedPoints().isEmpty()) {
@@ -674,10 +645,6 @@ public class ActiveTripActivity extends AppCompatActivity
         return null;
     }
 
-    // =========================================================================
-    // Room + Cloud
-    // =========================================================================
-
     private void savePoiToRoomAndSync(Poi poi) {
         String timestamp = new SimpleDateFormat(
                 "yyyy-MM-dd'T'HH:mm:ss",
@@ -687,6 +654,7 @@ public class ActiveTripActivity extends AppCompatActivity
         Executors.newSingleThreadExecutor().execute(() -> {
             PoiEntity entity = new PoiEntity();
 
+            entity.poiId = poi.getPoiId();
             entity.userId = "amin";
             entity.tripId = "trip_" + tripStartTime;
             entity.tripName = tripName;
@@ -699,14 +667,6 @@ public class ActiveTripActivity extends AppCompatActivity
             entity.photoBase64 = poi.getPhotoBase64();
             entity.recordedAt = timestamp;
             entity.synced = false;
-
-            /*
-             * Idéalement, ajoute aussi ce champ dans PoiEntity :
-             * public String poiId;
-             *
-             * Puis décommente :
-             * entity.poiId = poi.getPoiId();
-             */
 
             localDb.poiDao().insert(entity);
 
@@ -784,15 +744,8 @@ public class ActiveTripActivity extends AppCompatActivity
             entity.longitude = lng;
             entity.photoBase64 = base64;
             entity.recordedAt = timestamp;
+            entity.linkedPoiId = linkedPoiId;
             entity.synced = false;
-
-            /*
-             * Idéalement, ajoute aussi ce champ dans PhotoEntity :
-             * public String linkedPoiId;
-             *
-             * Puis décommente :
-             * entity.linkedPoiId = linkedPoiId;
-             */
 
             localDb.photoDao().insert(entity);
 
@@ -840,10 +793,6 @@ public class ActiveTripActivity extends AppCompatActivity
                     }
                 });
     }
-
-    // =========================================================================
-    // onActivityResult
-    // =========================================================================
 
     @Override
     protected void onActivityResult(
@@ -939,10 +888,6 @@ public class ActiveTripActivity extends AppCompatActivity
             }
         }
     }
-
-    // =========================================================================
-    // Utilitaires photo
-    // =========================================================================
 
     private void dispatchTakePictureIntent(
             ImageView imgPreview,

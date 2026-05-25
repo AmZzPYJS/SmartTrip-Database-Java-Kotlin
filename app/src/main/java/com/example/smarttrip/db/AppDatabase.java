@@ -1,6 +1,7 @@
 package com.example.smarttrip.db;
 
 import android.content.Context;
+
 import androidx.room.Database;
 import androidx.room.Room;
 import androidx.room.RoomDatabase;
@@ -11,16 +12,10 @@ import androidx.room.RoomDatabase;
  * Utilisée pour stocker GPS, POI et photos offline.
  * Le SyncWorker lit les entrées non synchronisées et les envoie au cloud
  * dès que le réseau revient.
- *
- * Emplacement : com.example.smarttrip.db.AppDatabase
- *
- * Pour l'accès depuis d'autres packages :
- *   AppDatabase db = AppDatabase.getInstance(context);
- *   db.gpsPointDao().insert(entity);
  */
 @Database(
         entities = { GpsPointEntity.class, PoiEntity.class, PhotoEntity.class },
-        version  = 1,
+        version = 2,
         exportSchema = false
 )
 public abstract class AppDatabase extends RoomDatabase {
@@ -28,8 +23,8 @@ public abstract class AppDatabase extends RoomDatabase {
     private static volatile AppDatabase INSTANCE;
 
     public abstract GpsPointDao gpsPointDao();
-    public abstract PoiDao      poiDao();
-    public abstract PhotoDao    photoDao();
+    public abstract PoiDao poiDao();
+    public abstract PhotoDao photoDao();
 
     public static AppDatabase getInstance(Context context) {
         if (INSTANCE == null) {
@@ -40,13 +35,15 @@ public abstract class AppDatabase extends RoomDatabase {
                                     AppDatabase.class,
                                     "smarttrip_local.db"
                             )
-                            // Permet d'effacer et recréer la DB si le schéma change
-                            // (à remplacer par une migration en production)
+                            // Pour ton projet actuel, c'est acceptable.
+                            // Attention : ça efface la DB locale si le schéma change.
+                            // Les données déjà envoyées au cloud restent dans MongoDB.
                             .fallbackToDestructiveMigration()
                             .build();
                 }
             }
         }
+
         return INSTANCE;
     }
 }
